@@ -5,7 +5,7 @@ import { TrendingUp, Calendar, Clock, Award } from 'lucide-react-native';
 import { Colors, Spacing } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
-
+//6 7 
 export default function ProgressScreen() {
   const { patient, getWeeklyProgress } = usePatientStore();
   const weeklyData = getWeeklyProgress();
