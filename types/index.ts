@@ -1,363 +1,265 @@
-// app/(tabs)/index.tsx - REPLACE YOUR CURRENT FILE
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Clock, MessageCircle, Calendar, TrendingUp } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '@/constants/colors';
-import { usePatientStore } from '@/stores/patient-store';
-import { ProgressRing } from '@/components/ProgressRing';
-import { Card } from '@/components/Card';
-import { Button } from '@/components/Button';
-import { router } from 'expo-router';
-
-export default function HomeScreen() {
-  const {
-    patient,
-    currentSession,
-    todayWearMinutes,
-    unreadMessages,
-    startWearSession,
-    stopWearSession,
-    addWearMinutes,
-  } = usePatientStore();
-
-  const [sessionTime, setSessionTime] = useState(0);
-
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (currentSession) {
-      interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - currentSession.startTime.getTime()) / 1000);
-        setSessionTime(elapsed);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [currentSession]);
-
-  if (!patient) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading your profile...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const targetMinutes = patient.targetHoursPerDay * 60;
-  const progress = Math.min(todayWearMinutes / targetMinutes, 1);
-  const hoursWorn = Math.floor(todayWearMinutes / 60);
-  const minutesWorn = todayWearMinutes % 60;
-
-  const formatTime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handleQuickLog = () => {
-    addWearMinutes(60); // Add 1 hour
-  };
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Good morning,</Text>
-            <Text style={styles.name}>{patient.name}</Text>
-          </View>
-          <TouchableOpacity style={styles.messageButton} onPress={() => router.push('/messages')}>
-            <MessageCircle size={24} color={Colors.textSecondary} />
-            {unreadMessages > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadMessages}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Progress Ring */}
-        <Card style={styles.progressCard}>
-          <View style={styles.progressContainer}>
-            <ProgressRing progress={progress} size={200} strokeWidth={12}>
-              <View style={styles.progressContent}>
-                <Text style={styles.hoursText}>{hoursWorn}h {minutesWorn}m</Text>
-                <Text style={styles.targetText}>of {patient.targetHoursPerDay}h goal</Text>
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-                </View>
-              </View>
-            </ProgressRing>
-          </View>
-        </Card>
-
-        {/* Timer Section */}
-        <Card style={styles.timerCard}>
-          <View style={styles.timerHeader}>
-            <Clock size={20} color={Colors.primary} />
-            <Text style={styles.timerTitle}>Wear Timer</Text>
-          </View>
-          
-          {currentSession ? (
-            <View style={styles.activeTimer}>
-              <Text style={styles.sessionTime}>{formatTime(sessionTime)}</Text>
-              <Text style={styles.sessionLabel}>Current session</Text>
-              <Button
-                title="Stop Wearing"
-                onPress={stopWearSession}
-                variant="outline"
-                style={styles.timerButton}
-              />
-            </View>
-          ) : (
-            <View style={styles.inactiveTimer}>
-              <Text style={styles.timerDescription}>Start tracking your aligner wear time</Text>
-              <Button
-                title="Start Wearing"
-                onPress={startWearSession}
-                style={styles.timerButton}
-              />
-            </View>
-          )}
-        </Card>
-
-        {/* Quick Actions */}
-        <View style={styles.quickActions}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionGrid}>
-            <TouchableOpacity style={styles.actionItem} onPress={handleQuickLog}>
-              <View style={styles.actionIcon}>
-                <TrendingUp size={24} color={Colors.primary} />
-              </View>
-              <Text style={styles.actionText}>Log Hours</Text>
-              <Text style={styles.actionSubtext}>Manually add time</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionItem} onPress={() => router.push('/tray')}>
-              <View style={styles.actionIcon}>
-                <Calendar size={24} color={Colors.primary} />
-              </View>
-              <Text style={styles.actionText}>Tray Change</Text>
-              <Text style={styles.actionSubtext}>Record new tray</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Today's Summary */}
-        <Card style={styles.summaryCard}>
-          <Text style={styles.sectionTitle}>Today&apos;s Summary</Text>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{Math.round(progress * 100)}%</Text>
-              <Text style={styles.summaryLabel}>Goal Progress</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>Tray {patient.currentTray}</Text>
-              <Text style={styles.summaryLabel}>Current Tray</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{patient.totalTrays - patient.currentTray}</Text>
-              <Text style={styles.summaryLabel}>Trays Left</Text>
-            </View>
-          </View>
-        </Card>
-      </ScrollView>
-    </SafeAreaView>
-  );
+// types/index.ts - COMPLETE FILE
+export interface Profile {
+  id: string
+  name: string
+  email: string
+  role: 'patient' | 'doctor' | 'admin'
+  created_at: string
+  updated_at: string
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-  },
-  scrollView: {
-    flex: 1,
-    paddingHorizontal: Spacing.md,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing.lg,
-  },
-  greeting: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    fontWeight: '400',
-  },
-  name: {
-    fontSize: 24,
-    color: Colors.textPrimary,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  messageButton: {
-    position: 'relative',
-    padding: Spacing.sm,
-  },
-  badge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: Colors.error,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeText: {
-    color: Colors.background,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  progressCard: {
-    marginBottom: Spacing.md,
-  },
-  progressContainer: {
-    alignItems: 'center',
-    paddingVertical: Spacing.lg,
-  },
-  progressContent: {
-    alignItems: 'center',
-  },
-  hoursText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  targetText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
-  },
-  progressBar: {
-    width: 80,
-    height: 4,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-  },
-  timerCard: {
-    marginBottom: Spacing.md,
-  },
-  timerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  timerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginLeft: Spacing.sm,
-  },
-  activeTimer: {
-    alignItems: 'center',
-  },
-  sessionTime: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginBottom: 4,
-  },
-  sessionLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.md,
-  },
-  inactiveTimer: {
-    alignItems: 'center',
-  },
-  timerDescription: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  timerButton: {
-    minWidth: 160,
-  },
-  quickActions: {
-    marginBottom: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  actionItem: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  actionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  actionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  actionSubtext: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  summaryCard: {
-    marginBottom: Spacing.xl,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  summaryItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-});
+export interface Patient {
+  id: string
+  user_id: string
+  name?: string // Added from profile
+  email?: string // Added from profile
+  target_hours_per_day: number
+  total_trays: number
+  current_tray: number
+  treatment_start_date: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DailyLog {
+  id: string
+  patient_id: string
+  date: string
+  wear_minutes: number
+  comfort_level: number
+  fit_ok: boolean
+  notes: string | null
+  created_at: string
+}
+
+export interface TrayChange {
+  id: string
+  patient_id: string
+  tray_number: number
+  date_changed: string
+  fit_status: 'ok' | 'watch' | 'not_seated'
+  photo_urls: string[]
+  notes: string | null
+  created_at: string
+}
+
+export interface Message {
+  id: string
+  sender_id: string
+  recipient_id: string
+  content: string
+  read: boolean
+  created_at: string
+  // Computed fields
+  sender?: 'patient' | 'doctor'
+  createdAt?: Date
+}
+
+export interface Appointment {
+  id: string
+  patient_id: string
+  doctor_id: string
+  starts_at: string
+  ends_at: string
+  purpose: string
+  location: string | null
+  provider: string | null
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no_show'
+  created_at: string
+  // Computed fields
+  startsAt?: Date
+  endsAt?: Date
+}
+
+export interface WearSession {
+  id: string
+  patient_id: string
+  start_time: string
+  end_time: string | null
+  is_active: boolean
+  created_at: string
+  // Computed fields
+  startTime?: Date
+  endTime?: Date
+}
+
+// UI specific types
+export interface WeeklyProgressData {
+  date: string
+  hours: number
+}
+
+export interface PatientSummary {
+  todayWearMinutes: number
+  weeklyAverage: number
+  currentStreak: number
+  complianceRate: number
+}
+
+// Store types
+export interface PatientStoreState {
+  // Data
+  patient: Patient | null
+  profile: Profile | null
+  loading: boolean
+  error: string | null
+  
+  // Real-time data
+  todayWearMinutes: number
+  unreadMessages: number
+  dailyLogs: DailyLog[]
+  trayChanges: TrayChange[]
+  appointments: Appointment[]
+  messages: Message[]
+  currentSession: WearSession | null
+}
+
+export interface PatientStoreActions {
+  // Auth actions
+  initialize: () => Promise<void>
+  signUp: (email: string, password: string, name: string, role?: string) => Promise<{ error?: any }>
+  signIn: (email: string, password: string) => Promise<{ error?: any }>
+  signOut: () => Promise<void>
+  
+  // Data loading
+  loadPatientData: () => Promise<void>
+  loadDailyLogs: () => Promise<void>
+  loadTrayChanges: () => Promise<void>
+  loadAppointments: () => Promise<void>
+  loadMessages: () => Promise<void>
+  
+  // Patient actions
+  startWearSession: () => Promise<void>
+  stopWearSession: () => Promise<void>
+  addWearMinutes: (minutes: number) => Promise<void>
+  logTrayChange: (trayNumber: number, fitStatus: string) => Promise<void>
+  addMessage: (content: string, sender: string) => void
+  markMessagesRead: () => void
+  
+  // Computed data
+  getTodayLog: () => DailyLog | { date: string; wearMinutes: number }
+  getWeeklyProgress: () => WeeklyProgressData[]
+}
+
+// Database types (matching Supabase schema)
+export type Database = {
+  public: {
+    Tables: {
+      profiles: {
+        Row: Profile
+        Insert: Omit<Profile, 'created_at' | 'updated_at'> & {
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>
+      }
+      patients: {
+        Row: Patient
+        Insert: Omit<Patient, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<Patient, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
+      }
+      daily_logs: {
+        Row: DailyLog
+        Insert: Omit<DailyLog, 'id' | 'created_at'> & {
+          id?: string
+          date?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<DailyLog, 'id' | 'patient_id' | 'created_at'>>
+      }
+      tray_changes: {
+        Row: TrayChange
+        Insert: Omit<TrayChange, 'id' | 'created_at'> & {
+          id?: string
+          date_changed?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<TrayChange, 'id' | 'patient_id' | 'created_at'>>
+      }
+      messages: {
+        Row: Message
+        Insert: Omit<Message, 'id' | 'created_at'> & {
+          id?: string
+          read?: boolean
+          created_at?: string
+        }
+        Update: Partial<Omit<Message, 'id' | 'sender_id' | 'recipient_id' | 'created_at'>>
+      }
+      appointments: {
+        Row: Appointment
+        Insert: Omit<Appointment, 'id' | 'created_at'> & {
+          id?: string
+          status?: 'scheduled' | 'completed' | 'cancelled' | 'no_show'
+          created_at?: string
+        }
+        Update: Partial<Omit<Appointment, 'id' | 'patient_id' | 'created_at'>>
+      }
+      wear_sessions: {
+        Row: WearSession
+        Insert: Omit<WearSession, 'id' | 'created_at'> & {
+          id?: string
+          start_time?: string
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: Partial<Omit<WearSession, 'id' | 'patient_id' | 'created_at'>>
+      }
+    }
+  }
+}
+
+// Component prop types
+export interface ProgressRingProps {
+  progress: number
+  size: number
+  strokeWidth: number
+  children?: React.ReactNode
+}
+
+export interface CardProps {
+  children: React.ReactNode
+  style?: any
+  padding?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+}
+
+export interface ButtonProps {
+  title: string
+  onPress: () => void
+  variant?: 'primary' | 'secondary' | 'outline'
+  size?: 'sm' | 'md' | 'lg'
+  disabled?: boolean
+  style?: any
+  textStyle?: any
+}
+
+// Navigation types
+export type RootStackParamList = {
+  '(tabs)': undefined
+  auth: undefined
+  modal: undefined
+}
+
+export type TabParamList = {
+  index: undefined
+  tray: undefined
+  appointments: undefined
+  messages: undefined
+  progress: undefined
+  profile: undefined
+}
+
+// Error types
+export interface AuthError {
+  message: string
+  status?: number
+}
+
+export interface DatabaseError {
+  message: string
+  code?: string
+  details?: string
+}

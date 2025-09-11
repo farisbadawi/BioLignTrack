@@ -1,55 +1,75 @@
-import React, { useState, useEffect } from 'react';
+// This will be the doctor's dashboard when userRole === 'doctor'
+// Add this content to your existing app/(tabs)/index.tsx and use role-based rendering
+
+import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Clock, MessageCircle, Calendar, TrendingUp } from 'lucide-react-native';
+import { Users, MessageCircle, Calendar, TrendingUp, AlertCircle, Clock } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
-import { ProgressRing } from '@/components/ProgressRing';
 import { Card } from '@/components/Card';
-import { Button } from '@/components/Button';
 import { router } from 'expo-router';
 
-export default function HomeScreen() {
-  const {
-    patient,
-    currentSession,
-    todayWearMinutes,
-    unreadMessages,
-    startWearSession,
-    stopWearSession,
-    addWearMinutes,
+// Doctor Dashboard Component
+export function DoctorDashboard() {
+  const { 
+    profile, 
+    assignedPatients, 
+    unreadMessages, 
+    invitations 
   } = usePatientStore();
 
-  const [sessionTime, setSessionTime] = useState(0);
+  if (!profile) return null;
 
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (currentSession) {
-      interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - currentSession.startTime.getTime()) / 1000);
-        setSessionTime(elapsed);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [currentSession]);
+  const activePatients = assignedPatients.length;
+  const pendingInvitations = invitations.filter(inv => inv.status === 'pending').length;
+  
+  // Calculate urgent patients (those with low compliance or overdue tray changes)
+  const urgentPatients = assignedPatients.filter(patient => {
+    // Mock logic - in real app, calculate from actual data
+    return Math.random() > 0.8; // 20% of patients need attention
+  }).length;
 
-  if (!patient) return null;
+  const StatCard = ({ icon: Icon, title, value, subtitle, color = Colors.primary, onPress }: any) => (
+    <TouchableOpacity onPress={onPress}>
+      <Card style={styles.statCard}>
+        <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
+          <Icon size={24} color={color} />
+        </View>
+        <Text style={styles.statValue}>{value}</Text>
+        <Text style={styles.statTitle}>{title}</Text>
+        {subtitle && <Text style={styles.statSubtitle}>{subtitle}</Text>}
+      </Card>
+    </TouchableOpacity>
+  );
 
-  const targetMinutes = patient.targetHoursPerDay * 60;
-  const progress = Math.min(todayWearMinutes / targetMinutes, 1);
-  const hoursWorn = Math.floor(todayWearMinutes / 60);
-  const minutesWorn = todayWearMinutes % 60;
-
-  const formatTime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handleQuickLog = () => {
-    addWearMinutes(60); // Add 1 hour
-  };
+  const PatientCard = ({ patient }: { patient: any }) => (
+    <TouchableOpacity 
+      style={styles.patientCard}
+      onPress={() => router.push(`/patient-detail/${patient.id}`)}
+    >
+      <View style={styles.patientAvatar}>
+        <Text style={styles.patientInitials}>
+          {patient.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'PA'}
+        </Text>
+      </View>
+      <View style={styles.patientInfo}>
+        <Text style={styles.patientName}>{patient.name}</Text>
+        <Text style={styles.patientDetails}>
+          Tray {patient.patientData?.current_tray || 1} of {patient.patientData?.total_trays || 24}
+        </Text>
+        <View style={styles.patientStatus}>
+          <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
+          <Text style={styles.statusText}>On track</Text>
+        </View>
+      </View>
+      <View style={styles.patientActions}>
+        <TouchableOpacity style={styles.messageButton}>
+          <MessageCircle size={16} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -58,9 +78,12 @@ export default function HomeScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Good morning,</Text>
-            <Text style={styles.name}>{patient.name}</Text>
+            <Text style={styles.doctorName}>Dr. {profile.name?.replace('Dr. ', '') || profile.name}</Text>
           </View>
-          <TouchableOpacity style={styles.messageButton} onPress={() => router.push('/messages')}>
+          <TouchableOpacity 
+            style={styles.notificationButton}
+            onPress={() => router.push('/messages')}
+          >
             <MessageCircle size={24} color={Colors.textSecondary} />
             {unreadMessages > 0 && (
               <View style={styles.badge}>
@@ -70,90 +93,121 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Progress Ring */}
-        <Card style={styles.progressCard}>
-          <View style={styles.progressContainer}>
-            <ProgressRing progress={progress} size={200} strokeWidth={12}>
-              <View style={styles.progressContent}>
-                <Text style={styles.hoursText}>{hoursWorn}h {minutesWorn}m</Text>
-                <Text style={styles.targetText}>of {patient.targetHoursPerDay}h goal</Text>
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-                </View>
-              </View>
-            </ProgressRing>
-          </View>
-        </Card>
+        {/* Stats Overview */}
+        <View style={styles.statsGrid}>
+          <StatCard
+            icon={Users}
+            title="Active Patients"
+            value={activePatients}
+            subtitle="under care"
+            onPress={() => router.push('/patients')}
+          />
+          
+          <StatCard
+            icon={MessageCircle}
+            title="Messages"
+            value={unreadMessages}
+            subtitle="unread"
+            color={Colors.primary}
+            onPress={() => router.push('/messages')}
+          />
+          
+          <StatCard
+            icon={AlertCircle}
+            title="Need Attention"
+            value={urgentPatients}
+            subtitle="patients"
+            color={Colors.warning}
+            onPress={() => router.push('/patients?filter=urgent')}
+          />
+          
+          <StatCard
+            icon={Calendar}
+            title="Invitations"
+            value={pendingInvitations}
+            subtitle="pending"
+            color={Colors.success}
+            onPress={() => router.push('/invite')}
+          />
+        </View>
 
-        {/* Timer Section */}
-        <Card style={styles.timerCard}>
-          <View style={styles.timerHeader}>
-            <Clock size={20} color={Colors.primary} />
-            <Text style={styles.timerTitle}>Wear Timer</Text>
+        {/* Recent Patients */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Patients</Text>
+            <TouchableOpacity onPress={() => router.push('/patients')}>
+              <Text style={styles.seeAllText}>See All</Text>
+            </TouchableOpacity>
           </View>
           
-          {currentSession ? (
-            <View style={styles.activeTimer}>
-              <Text style={styles.sessionTime}>{formatTime(sessionTime)}</Text>
-              <Text style={styles.sessionLabel}>Current session</Text>
-              <Button
-                title="Stop Wearing"
-                onPress={stopWearSession}
-                variant="outline"
-                style={styles.timerButton}
-              />
-            </View>
-          ) : (
-            <View style={styles.inactiveTimer}>
-              <Text style={styles.timerDescription}>Start tracking your aligner wear time</Text>
-              <Button
-                title="Start Wearing"
-                onPress={startWearSession}
-                style={styles.timerButton}
-              />
-            </View>
+          {assignedPatients.slice(0, 3).map((patient) => (
+            <PatientCard key={patient.id} patient={patient} />
+          ))}
+          
+          {assignedPatients.length === 0 && (
+            <Card style={styles.emptyCard}>
+              <Users size={48} color={Colors.textSecondary} />
+              <Text style={styles.emptyTitle}>No patients yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Start by inviting patients to join your practice
+              </Text>
+            </Card>
           )}
-        </Card>
+        </View>
 
         {/* Quick Actions */}
-        <View style={styles.quickActions}>
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionGrid}>
-            <TouchableOpacity style={styles.actionItem} onPress={handleQuickLog}>
-              <View style={styles.actionIcon}>
-                <TrendingUp size={24} color={Colors.primary} />
+          <View style={styles.quickActionsGrid}>
+            <TouchableOpacity 
+              style={styles.quickAction}
+              onPress={() => router.push('/invite')}
+            >
+              <View style={styles.quickActionIcon}>
+                <Users size={24} color={Colors.primary} />
               </View>
-              <Text style={styles.actionText}>Log Hours</Text>
-              <Text style={styles.actionSubtext}>Manually add time</Text>
+              <Text style={styles.quickActionText}>Invite Patient</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionItem} onPress={() => router.push('/tray')}>
-              <View style={styles.actionIcon}>
+            
+            <TouchableOpacity 
+              style={styles.quickAction}
+              onPress={() => router.push('/appointments')}
+            >
+              <View style={styles.quickActionIcon}>
                 <Calendar size={24} color={Colors.primary} />
               </View>
-              <Text style={styles.actionText}>Tray Change</Text>
-              <Text style={styles.actionSubtext}>Record new tray</Text>
+              <Text style={styles.quickActionText}>Schedule</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.quickAction}
+              onPress={() => router.push('/messages')}
+            >
+              <View style={styles.quickActionIcon}>
+                <MessageCircle size={24} color={Colors.primary} />
+              </View>
+              <Text style={styles.quickActionText}>Messages</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.quickAction}
+              onPress={() => router.push('/analytics')}
+            >
+              <View style={styles.quickActionIcon}>
+                <TrendingUp size={24} color={Colors.primary} />
+              </View>
+              <Text style={styles.quickActionText}>Analytics</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Today's Summary */}
-        <Card style={styles.summaryCard}>
-          <Text style={styles.sectionTitle}>Today&apos;s Summary</Text>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{Math.round(progress * 100)}%</Text>
-              <Text style={styles.summaryLabel}>Goal Progress</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>Tray {patient.currentTray}</Text>
-              <Text style={styles.summaryLabel}>Current Tray</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{patient.totalTrays - patient.currentTray}</Text>
-              <Text style={styles.summaryLabel}>Trays Left</Text>
-            </View>
+        {/* Today's Schedule */}
+        <Card style={styles.scheduleCard}>
+          <View style={styles.scheduleHeader}>
+            <Clock size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Today's Schedule</Text>
           </View>
+          <Text style={styles.scheduleSubtitle}>No appointments scheduled for today</Text>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -180,13 +234,13 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: '400',
   },
-  name: {
+  doctorName: {
     fontSize: 24,
     color: Colors.textPrimary,
     fontWeight: '700',
     marginTop: 2,
   },
-  messageButton: {
+  notificationButton: {
     position: 'relative',
     padding: Spacing.sm,
   },
@@ -206,92 +260,141 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  progressCard: {
-    marginBottom: Spacing.md,
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
   },
-  progressContainer: {
+  statCard: {
+    flex: 1,
+    minWidth: '45%',
     alignItems: 'center',
-    paddingVertical: Spacing.lg,
+    paddingVertical: Spacing.md,
   },
-  progressContent: {
+  statIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
     alignItems: 'center',
-  },
-  hoursText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  targetText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
     marginBottom: Spacing.sm,
   },
-  progressBar: {
-    width: 80,
-    height: 4,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-  },
-  timerCard: {
-    marginBottom: Spacing.md,
-  },
-  timerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  timerTitle: {
-    fontSize: 18,
+  statTitle: {
+    fontSize: 14,
     fontWeight: '600',
     color: Colors.textPrimary,
-    marginLeft: Spacing.sm,
+    textAlign: 'center',
   },
-  activeTimer: {
-    alignItems: 'center',
-  },
-  sessionTime: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginBottom: 4,
-  },
-  sessionLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.md,
-  },
-  inactiveTimer: {
-    alignItems: 'center',
-  },
-  timerDescription: {
-    fontSize: 16,
+  statSubtitle: {
+    fontSize: 12,
     color: Colors.textSecondary,
     textAlign: 'center',
-    marginBottom: Spacing.md,
   },
-  timerButton: {
-    minWidth: 160,
+  section: {
+    marginBottom: Spacing.lg,
   },
-  quickActions: {
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: Spacing.md,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: Colors.textPrimary,
-    marginBottom: Spacing.md,
   },
-  actionGrid: {
+  seeAllText: {
+    fontSize: 14,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  patientCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  patientAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: Spacing.md,
+  },
+  patientInitials: {
+    color: Colors.background,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  patientInfo: {
+    flex: 1,
+  },
+  patientName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  patientDetails: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
+  patientStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: Spacing.xs,
+  },
+  statusText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  patientActions: {
+    alignItems: 'center',
+  },
+  messageButton: {
+    padding: Spacing.xs,
+  },
+  emptyCard: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  quickActionsGrid: {
     flexDirection: 'row',
     gap: Spacing.md,
   },
-  actionItem: {
+  quickAction: {
     flex: 1,
     backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
@@ -300,7 +403,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  actionIcon: {
+  quickActionIcon: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -309,37 +412,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.sm,
   },
-  actionText: {
+  quickActionText: {
     fontSize: 14,
     fontWeight: '600',
     color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  actionSubtext: {
-    fontSize: 12,
-    color: Colors.textSecondary,
     textAlign: 'center',
   },
-  summaryCard: {
+  scheduleCard: {
     marginBottom: Spacing.xl,
   },
-  summaryGrid: {
+  scheduleHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  summaryItem: {
     alignItems: 'center',
-    flex: 1,
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
   },
-  summaryValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
+  scheduleSubtitle: {
+    fontSize: 14,
     color: Colors.textSecondary,
-    textAlign: 'center',
   },
 });

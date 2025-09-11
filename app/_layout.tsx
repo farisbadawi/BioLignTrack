@@ -1,4 +1,4 @@
-// app/_layout.tsx - REPLACE ENTIRE FILE WITH THIS
+// app/_layout.tsx - COMPLETE REPLACEMENT
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -9,6 +9,7 @@ import { View, Text, ActivityIndicator } from "react-native";
 import { usePatientStore } from "@/stores/patient-store";
 import { Colors } from "@/constants/colors";
 import AuthScreen from "./auth";
+import RoleSelectionScreen from "./role-selection";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -29,14 +30,22 @@ function LoadingScreen() {
 
 function RootLayoutNav() {
   const [isReady, setIsReady] = useState(false);
+  const [showRoleSelection, setShowRoleSelection] = useState(false);
   const { initialize, profile, loading } = usePatientStore();
 
   useEffect(() => {
     const setup = async () => {
       try {
         await initialize();
+        
+        // Check if this is first time user (no profile found)
+        // Show role selection if no user is logged in
+        if (!profile) {
+          setShowRoleSelection(true);
+        }
       } catch (error) {
         console.error('Initialization error:', error);
+        setShowRoleSelection(true);
       } finally {
         setIsReady(true);
         SplashScreen.hideAsync();
@@ -49,6 +58,16 @@ function RootLayoutNav() {
   // Show loading screen while initializing
   if (!isReady || loading) {
     return <LoadingScreen />;
+  }
+
+  // Show role selection for new users
+  if (!profile && showRoleSelection) {
+    return (
+      <>
+        <StatusBar style="dark" backgroundColor="#f8fafc" />
+        <RoleSelectionScreen />
+      </>
+    );
   }
 
   // Show auth screen if user is not logged in
@@ -69,6 +88,7 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: "modal" }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="role-selection" options={{ headerShown: false }} />
       </Stack>
     </>
   );

@@ -1,11 +1,11 @@
-// app/auth.tsx - NEW FILE
-import React, { useState } from 'react'
+// app/auth.tsx - COMPLETE REPLACEMENT
+import React, { useState, useEffect } from 'react'
 import { View, Text, TextInput, StyleSheet, Alert, ScrollView } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Button } from '@/components/Button'
 import { Colors, Spacing, BorderRadius } from '@/constants/colors'
 import { usePatientStore } from '@/stores/patient-store'
-import { router } from 'expo-router'
+import { router, useLocalSearchParams } from 'expo-router'
 
 export default function AuthScreen() {
   const [isSignUp, setIsSignUp] = useState(false)
@@ -15,6 +15,18 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false)
   
   const { signIn, signUp } = usePatientStore()
+  const params = useLocalSearchParams()
+  
+  // Get role and invitation code from params
+  const role = (params.role as string) || 'patient'
+  const invitationCode = params.invitationCode as string
+
+  useEffect(() => {
+    // If coming from role selection, default to sign up
+    if (params.role) {
+      setIsSignUp(true)
+    }
+  }, [params])
 
   const handleAuth = async () => {
     if (!email || !password || (isSignUp && !name)) {
@@ -32,11 +44,13 @@ export default function AuthScreen() {
     try {
       let result
       if (isSignUp) {
-        result = await signUp(email, password, name, 'patient')
+        result = await signUp(email, password, name, role, invitationCode)
         if (!result.error) {
           Alert.alert(
             'Success!', 
-            'Account created successfully. You can now start tracking your orthodontic journey!'
+            role === 'doctor' ? 
+              'Doctor account created successfully!' : 
+              'Account created successfully. You can now start tracking your orthodontic journey!'
           )
         }
       } else {
@@ -58,15 +72,28 @@ export default function AuthScreen() {
   const handleDemoLogin = async () => {
     setLoading(true)
     try {
-      const result = await signIn('demo@biolign.com', 'demo123')
-      if (result.error) {
-        // Create demo account if it doesn't exist
-        const signUpResult = await signUp('demo@biolign.com', 'demo123', 'Demo Patient', 'patient')
-        if (!signUpResult.error) {
+      // Demo doctor login
+      if (role === 'doctor') {
+        const result = await signIn('doctor@biolign.com', 'demo123')
+        if (result.error) {
+          const signUpResult = await signUp('doctor@biolign.com', 'demo123', 'Dr. Demo', 'doctor')
+          if (!signUpResult.error) {
+            router.replace('/(tabs)')
+          }
+        } else {
           router.replace('/(tabs)')
         }
       } else {
-        router.replace('/(tabs)')
+        // Demo patient login
+        const result = await signIn('demo@biolign.com', 'demo123')
+        if (result.error) {
+          const signUpResult = await signUp('demo@biolign.com', 'demo123', 'Demo Patient', 'patient')
+          if (!signUpResult.error) {
+            router.replace('/(tabs)')
+          }
+        } else {
+          router.replace('/(tabs)')
+        }
       }
     } catch (error) {
       Alert.alert('Error', 'Could not create demo account')
@@ -75,15 +102,31 @@ export default function AuthScreen() {
     }
   }
 
+  const getRoleTitle = () => {
+    return role === 'doctor' ? 'Doctor Portal' : 'Patient Portal'
+  }
+
+  const getRoleSubtitle = () => {
+    if (role === 'doctor') {
+      return isSignUp ? 'Create your doctor account to manage patients' : 'Sign in to your doctor account'
+    }
+    return isSignUp ? 'Start tracking your orthodontic journey' : 'Welcome back to your treatment tracker'
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.header}>
-          <Text style={styles.logo}>🦷</Text>
-          <Text style={styles.title}>BioLign Progress</Text>
+          <Text style={styles.logo}>{role === 'doctor' ? '👨‍⚕️' : '🦷'}</Text>
+          <Text style={styles.title}>{getRoleTitle()}</Text>
           <Text style={styles.subtitle}>
-            {isSignUp ? 'Start tracking your orthodontic journey' : 'Welcome back to your treatment tracker'}
+            {getRoleSubtitle()}
           </Text>
+          {invitationCode && (
+            <View style={styles.invitationBadge}>
+              <Text style={styles.invitationText}>Invitation: {invitationCode}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.form}>
@@ -92,7 +135,7 @@ export default function AuthScreen() {
               <Text style={styles.label}>Full Name</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Enter your full name"
+                placeholder={role === 'doctor' ? 'Enter your full name (Dr. ...)' : 'Enter your full name'}
                 value={name}
                 onChangeText={setName}
                 autoCapitalize="words"
@@ -150,12 +193,21 @@ export default function AuthScreen() {
           </View>
 
           <Button
-            title="Try Demo Account"
+            title={`Try Demo ${role === 'doctor' ? 'Doctor' : 'Patient'} Account`}
             onPress={handleDemoLogin}
             variant="secondary"
             disabled={loading}
             style={styles.demoButton}
           />
+
+          {!params.role && (
+            <Button
+              title="← Back to Role Selection"
+              onPress={() => router.replace('/role-selection')}
+              variant="outline"
+              style={styles.backButton}
+            />
+          )}
         </View>
 
         <View style={styles.footer}>
@@ -198,6 +250,18 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  invitationBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+    marginTop: Spacing.md,
+  },
+  invitationText: {
+    color: Colors.background,
+    fontSize: 12,
+    fontWeight: '600',
   },
   form: {
     width: '100%',
@@ -249,6 +313,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   demoButton: {
+    marginBottom: Spacing.md,
+  },
+  backButton: {
     marginBottom: Spacing.lg,
   },
   footer: {
