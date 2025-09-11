@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Home, Package, Calendar, MessageCircle, User } from "lucide-react-native";
+import { Home, Package, Calendar, MessageCircle, User, LineChart } from "lucide-react-native";
 import React from "react";
 import { Colors } from "@/constants/colors";
 
@@ -57,7 +57,7 @@ export default function TabLayout() {
         name="progress"
         options={{
           title: "Progress",
-          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <LineChart size={size} color={color} />,
         }}
       />
       <Tabs.Screen
