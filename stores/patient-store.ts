@@ -1,4 +1,4 @@
-// stores/patient-store.ts - REAL DATA FLOW VERSION
+// stores/patient-store.ts - FIXED VERSION WITH CORRECT DATABASE RELATIONSHIPS
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
 
@@ -191,8 +191,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       const { error: updateError } = await supabase
         .from('patient_invitations')
         .update({ 
-          status: 'accepted',
-          updated_at: new Date().toISOString()
+          status: 'accepted'
         })
         .eq('id', invitation.id)
 
@@ -251,7 +250,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
-  // Load assigned doctor for patients - REAL IMPLEMENTATION
+  // Load assigned doctor for patients - CORRECTED VERSION
   loadAssignedDoctor: async () => {
     const { profile } = get()
     if (!profile || profile.role !== 'patient') return
@@ -280,43 +279,83 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       }
     } catch (error) {
       console.error('Load assigned doctor error:', error)
+      set({ assignedDoctor: null })
     }
   },
 
-  // Load assigned patients for doctors - REAL IMPLEMENTATION  
+  // Load assigned patients for doctors - COMPLETELY FIXED VERSION
   loadAssignedPatients: async () => {
     const { profile } = get()
     if (!profile || profile.role !== 'doctor') return
 
     try {
-      const { data: relationships, error } = await supabase
+      console.log('Loading assigned patients for doctor:', profile.id)
+      
+      // First get the doctor-patient relationships
+      const { data: relationships, error: relationError } = await supabase
         .from('doctor_patients')
         .select(`
           patient_id,
-          profiles!doctor_patients_patient_id_fkey (
-            id, name, email, role
-          ),
-          patients (
-            id, current_tray, total_trays, target_hours_per_day
-          )
+          status,
+          assigned_date
         `)
         .eq('doctor_id', profile.id)
         .eq('status', 'active')
 
-      if (error) {
-        console.error('Load patients error:', error)
+      if (relationError) {
+        console.error('Load relationships error:', relationError)
         set({ assignedPatients: [] })
         return
       }
 
-      if (relationships) {
-        const patients = relationships.map(relationship => ({
-          ...relationship.profiles,
-          patientData: relationship.patients?.[0] || null
-        })).filter(patient => patient.id) // Filter out null patients
-        
-        set({ assignedPatients: patients })
+      if (!relationships || relationships.length === 0) {
+        console.log('No patient relationships found')
+        set({ assignedPatients: [] })
+        return
       }
+
+      console.log('Found relationships:', relationships)
+
+      // Get patient profile info
+      const patientIds = relationships.map(r => r.patient_id)
+      const { data: patientProfiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, name, email, role')
+        .in('id', patientIds)
+
+      if (profileError) {
+        console.error('Load patient profiles error:', profileError)
+        set({ assignedPatients: [] })
+        return
+      }
+
+      console.log('Found patient profiles:', patientProfiles)
+
+      // Get patient data (treatment info) - this may not exist for all patients
+      const { data: patientsData, error: patientError } = await supabase
+        .from('patients')
+        .select('id, user_id, current_tray, total_trays, target_hours_per_day')
+        .in('user_id', patientIds)
+
+      // Don't fail if patients data doesn't exist - it will be created when they first log in
+      if (patientError) {
+        console.log('Patients data not found (this is okay):', patientError)
+      }
+
+      console.log('Found patients data:', patientsData)
+
+      // Combine the data
+      const patients = patientProfiles?.map(profile => {
+        const patientData = patientsData?.find(p => p.user_id === profile.id)
+        return {
+          ...profile,
+          patientData: patientData || null
+        }
+      }) || []
+      
+      console.log('Combined patient data:', patients)
+      set({ assignedPatients: patients })
+
     } catch (error) {
       console.error('Load assigned patients error:', error)
       set({ assignedPatients: [] })
@@ -526,8 +565,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
-  // ... (keep all the existing loadPatientData, loadMessages, etc. methods the same)
-  
+  // Keep all existing methods (loadPatientData, loadMessages, etc.) unchanged
   loadPatientData: async () => {
     const { profile } = get()
     if (!profile) return
@@ -632,7 +670,6 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
-  // Keep all existing methods (loadDailyLogs, loadTrayChanges, etc.) unchanged
   loadDailyLogs: async () => {
     const { patient } = get()
     if (!patient?.id) return
@@ -855,5 +892,3 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     return days
   },
 }))
-
-// No automatic auth state listener - handle manually
