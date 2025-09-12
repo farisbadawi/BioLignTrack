@@ -4,6 +4,19 @@ import { Home, Package, Calendar, MessageCircle, User, LineChart, Users, BarChar
 import React from "react";
 import { Colors } from "@/constants/colors";
 import { usePatientStore } from "@/stores/patient-store";
+import { View, Text, ActivityIndicator } from "react-native";
+
+// Loading component for tab layout
+function TabLoadingScreen() {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.surface }}>
+      <ActivityIndicator size="large" color={Colors.primary} />
+      <Text style={{ marginTop: 16, fontSize: 16, color: Colors.textSecondary }}>
+        Loading...
+      </Text>
+    </View>
+  );
+}
 
 // Patient Tab Layout
 function PatientTabLayout() {
@@ -71,6 +84,19 @@ function PatientTabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+        }}
+      />
+      {/* Hide doctor-only tabs for patients */}
+      <Tabs.Screen
+        name="patients"
+        options={{
+          href: null, // This hides the tab
+        }}
+      />
+      <Tabs.Screen
+        name="invite"
+        options={{
+          href: null, // This hides the tab
         }}
       />
     </Tabs>
@@ -145,17 +171,30 @@ function DoctorTabLayout() {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
+      {/* Hide patient-only tabs for doctors */}
+      <Tabs.Screen
+        name="tray"
+        options={{
+          href: null, // This hides the tab
+        }}
+      />
+      <Tabs.Screen
+        name="progress"
+        options={{
+          href: null, // This hides the tab
+        }}
+      />
     </Tabs>
   );
 }
 
 // Main Layout Component with Role Detection
 export default function TabLayout() {
-  const { userRole, loading } = usePatientStore();
+  const { userRole, loading, profile } = usePatientStore();
 
   // Show loading while determining role
-  if (loading) {
-    return null;
+  if (loading || !profile) {
+    return <TabLoadingScreen />;
   }
 
   // Return appropriate layout based on user role

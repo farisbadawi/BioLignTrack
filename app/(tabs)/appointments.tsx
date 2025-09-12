@@ -5,14 +5,24 @@ import { Calendar, Clock, MapPin, User, Phone } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
-import { Appointment } from '@/types';
+
+interface AppointmentData {
+  id: string;
+  startsAt: Date;
+  endsAt: Date;
+  purpose: string;
+  location?: string;
+  provider?: string;
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no_show';
+}
 
 export default function AppointmentsScreen() {
-  const { appointments } = usePatientStore();
+  const { appointments, userRole } = usePatientStore();
 
+  // Filter and sort appointments
   const upcomingAppointments = appointments
-    .filter(apt => apt.status === 'scheduled' && new Date(apt.startsAt) > new Date())
-    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+    .filter((apt: AppointmentData) => apt.status === 'scheduled' && new Date(apt.startsAt) > new Date())
+    .sort((a: AppointmentData, b: AppointmentData) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
@@ -41,7 +51,7 @@ export default function AppointmentsScreen() {
     return `In ${diffDays} days`;
   };
 
-  const AppointmentCard = ({ appointment }: { appointment: Appointment }) => (
+  const AppointmentCard = ({ appointment }: { appointment: AppointmentData }) => (
     <Card style={styles.appointmentCard}>
       <View style={styles.appointmentHeader}>
         <View style={styles.dateInfo}>
@@ -104,15 +114,24 @@ export default function AppointmentsScreen() {
     </Card>
   );
 
+  const getPageTitle = () => {
+    return userRole === 'doctor' ? 'Patient Appointments' : 'Appointments';
+  };
+
+  const getSubtitle = () => {
+    if (userRole === 'doctor') {
+      return `${upcomingAppointments.length} upcoming patient appointments`;
+    }
+    return `${upcomingAppointments.length} upcoming appointments`;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Appointments</Text>
-          <Text style={styles.subtitle}>
-            {upcomingAppointments.length} upcoming appointments
-          </Text>
+          <Text style={styles.title}>{getPageTitle()}</Text>
+          <Text style={styles.subtitle}>{getSubtitle()}</Text>
         </View>
 
         {/* Next Appointment Highlight */}

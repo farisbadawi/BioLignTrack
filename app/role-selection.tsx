@@ -1,41 +1,25 @@
-// app/role-selection.tsx
+// app/role-selection.tsx - FINAL WORKING VERSION
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Users, Stethoscope } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
-import { router } from 'expo-router';
+import { Link } from 'expo-router';
 
 export default function RoleSelectionScreen() {
   const [selectedRole, setSelectedRole] = useState<'patient' | 'doctor' | null>(null);
   const [invitationCode, setInvitationCode] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleContinue = async () => {
-    if (!selectedRole) {
-      Alert.alert('Please select your role', 'Choose whether you are a patient or doctor');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      if (selectedRole === 'patient') {
-        if (!invitationCode.trim()) {
-          Alert.alert('Invitation Required', 'Please enter the invitation code provided by your doctor');
-          setLoading(false);
-          return;
-        }
-        router.replace(`/auth?role=patient&invitationCode=${invitationCode.trim().toUpperCase()}`);
-      } else {
-        router.replace('/auth?role=doctor');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+  const getAuthUrl = () => {
+    if (!selectedRole) return '';
+    
+    if (selectedRole === 'patient') {
+      const code = invitationCode.trim();
+      return code ? `/auth?role=patient&invitationCode=${code}` : '/auth?role=patient';
+    } else {
+      return '/auth?role=doctor';
     }
   };
 
@@ -60,7 +44,10 @@ export default function RoleSelectionScreen() {
             ]}
             onPress={() => setSelectedRole('patient')}
           >
-            <View style={styles.roleIcon}>
+            <View style={[
+              styles.roleIcon,
+              selectedRole === 'patient' && styles.selectedRoleIcon
+            ]}>
               <Users size={32} color={selectedRole === 'patient' ? Colors.background : Colors.primary} />
             </View>
             <View style={styles.roleInfo}>
@@ -91,7 +78,10 @@ export default function RoleSelectionScreen() {
             ]}
             onPress={() => setSelectedRole('doctor')}
           >
-            <View style={styles.roleIcon}>
+            <View style={[
+              styles.roleIcon,
+              selectedRole === 'doctor' && styles.selectedRoleIcon
+            ]}>
               <Stethoscope size={32} color={selectedRole === 'doctor' ? Colors.background : Colors.primary} />
             </View>
             <View style={styles.roleInfo}>
@@ -116,11 +106,12 @@ export default function RoleSelectionScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Invitation Code for Patients */}
         {selectedRole === 'patient' && (
           <Card style={styles.invitationCard}>
-            <Text style={styles.invitationTitle}>Invitation Code</Text>
+            <Text style={styles.invitationTitle}>Invitation Code (Optional)</Text>
             <Text style={styles.invitationSubtitle}>
-              Enter the code provided by your orthodontist
+              Enter the invitation code provided by your orthodontist
             </Text>
             <TextInput
               style={styles.invitationInput}
@@ -129,18 +120,38 @@ export default function RoleSelectionScreen() {
               onChangeText={(text) => setInvitationCode(text.toUpperCase())}
               maxLength={8}
               autoCapitalize="characters"
-              autoComplete="off"
             />
+            <Text style={styles.invitationNote}>
+              You can skip this for now and add it later
+            </Text>
           </Card>
         )}
 
+        {/* Doctor Info */}
+        {selectedRole === 'doctor' && (
+          <Card style={styles.doctorCard}>
+            <Text style={styles.doctorTitle}>Doctor Registration</Text>
+            <Text style={styles.doctorSubtitle}>
+              Create your doctor account to start managing patient treatments and send invitations.
+            </Text>
+          </Card>
+        )}
+
+        {/* Continue Button using Link */}
         <View style={styles.actions}>
-          <Button
-            title={loading ? 'Loading...' : 'Continue'}
-            onPress={handleContinue}
-            disabled={!selectedRole || loading || (selectedRole === 'patient' && !invitationCode.trim())}
-            style={styles.continueButton}
-          />
+          {selectedRole ? (
+            <Link href={getAuthUrl()} asChild>
+              <TouchableOpacity style={styles.continueButton}>
+                <Text style={styles.continueButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </Link>
+          ) : (
+            <TouchableOpacity style={[styles.continueButton, styles.continueButtonDisabled]} disabled>
+              <Text style={[styles.continueButtonText, styles.continueButtonTextDisabled]}>
+                Select a role to continue
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.footer}>
@@ -184,7 +195,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   roleSelection: {
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   sectionTitle: {
     fontSize: 20,
@@ -215,6 +226,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.md,
+  },
+  selectedRoleIcon: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   roleInfo: {
     flex: 1,
@@ -254,7 +268,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   invitationCard: {
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   invitationTitle: {
     fontSize: 16,
@@ -278,12 +292,53 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
     letterSpacing: 2,
+    marginBottom: Spacing.sm,
+  },
+  invitationNote: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  doctorCard: {
+    marginBottom: Spacing.lg,
+    backgroundColor: Colors.primary + '10',
+    borderColor: Colors.primary,
+  },
+  doctorTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  doctorSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 20,
   },
   actions: {
     marginBottom: Spacing.xl,
   },
   continueButton: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
     minHeight: 52,
+  },
+  continueButtonDisabled: {
+    backgroundColor: Colors.border,
+    opacity: 0.5,
+  },
+  continueButtonText: {
+    color: Colors.background,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  continueButtonTextDisabled: {
+    color: Colors.textSecondary,
   },
   footer: {
     alignItems: 'center',

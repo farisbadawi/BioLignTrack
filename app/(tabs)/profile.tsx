@@ -7,11 +7,11 @@ import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 
 export default function ProfileScreen() {
-  const { patient } = usePatientStore();
+  const { patient, profile, userRole, signOut } = usePatientStore();
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
   const [reminderEnabled, setReminderEnabled] = React.useState(true);
 
-  if (!patient) return null;
+  if (!profile) return null;
 
   const handleLogout = () => {
     Alert.alert(
@@ -19,9 +19,20 @@ export default function ProfileScreen() {
       'Are you sure you want to sign out?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign Out', style: 'destructive', onPress: () => {
-          Alert.alert('Signed Out', 'You have been successfully signed out.');
-        }},
+        { 
+          text: 'Sign Out', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              console.log('Signing out...');
+              await signOut();
+              console.log('Sign out completed');
+            } catch (error) {
+              console.error('Sign out error:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          }
+        },
       ]
     );
   };
@@ -73,6 +84,30 @@ export default function ProfileScreen() {
     </TouchableOpacity>
   );
 
+  const getRoleDisplayName = () => {
+    return userRole === 'doctor' ? 'Doctor' : 'Patient';
+  };
+
+  const getDisplayName = () => {
+    if (userRole === 'doctor') {
+      return profile.name;
+    }
+    return patient?.name || profile.name;
+  };
+
+  const getDisplayEmail = () => {
+    return patient?.email || profile.email;
+  };
+
+  const getTreatmentInfo = () => {
+    if (userRole === 'patient' && patient) {
+      return `Tray ${patient.current_tray} of ${patient.total_trays} • Active Treatment`;
+    } else if (userRole === 'doctor') {
+      return 'Managing patient treatments';
+    }
+    return 'Account active';
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -81,35 +116,41 @@ export default function ProfileScreen() {
           <Text style={styles.title}>Profile</Text>
         </View>
 
-        {/* Patient Info */}
-        <Card style={styles.patientCard}>
-          <View style={styles.patientInfo}>
+        {/* User Info */}
+        <Card style={styles.userCard}>
+          <View style={styles.userInfo}>
             <View style={styles.avatar}>
               <User size={32} color={Colors.primary} />
             </View>
-            <View style={styles.patientDetails}>
-              <Text style={styles.patientName}>{patient.name}</Text>
-              <Text style={styles.patientEmail}>{patient.email}</Text>
-              <Text style={styles.patientStatus}>
-                Tray {patient.currentTray} of {patient.totalTrays} • Active Treatment
+            <View style={styles.userDetails}>
+              <Text style={styles.userName}>{getDisplayName()}</Text>
+              <Text style={styles.userEmail}>{getDisplayEmail()}</Text>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleText}>{getRoleDisplayName()}</Text>
+              </View>
+              <Text style={styles.userStatus}>
+                {getTreatmentInfo()}
               </Text>
             </View>
           </View>
           
-          <View style={styles.treatmentProgress}>
-            <Text style={styles.progressLabel}>Treatment Progress</Text>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${(patient.currentTray / patient.totalTrays) * 100}%` }
-                ]} 
-              />
+          {/* Treatment Progress - Only for patients */}
+          {userRole === 'patient' && patient && (
+            <View style={styles.treatmentProgress}>
+              <Text style={styles.progressLabel}>Treatment Progress</Text>
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { width: `${(patient.current_tray / patient.total_trays) * 100}%` }
+                  ]} 
+                />
+              </View>
+              <Text style={styles.progressText}>
+                {Math.round((patient.current_tray / patient.total_trays) * 100)}% Complete
+              </Text>
             </View>
-            <Text style={styles.progressText}>
-              {Math.round((patient.currentTray / patient.totalTrays) * 100)}% Complete
-            </Text>
-          </View>
+          )}
         </Card>
 
         {/* Notifications */}
@@ -131,7 +172,7 @@ export default function ProfileScreen() {
           <SettingRow
             icon={Bell}
             title="Daily Reminders"
-            subtitle="Remind me to wear my aligners"
+            subtitle={userRole === 'doctor' ? "Remind about patient check-ins" : "Remind me to wear my aligners"}
             rightElement={
               <Switch
                 value={reminderEnabled}
@@ -143,21 +184,25 @@ export default function ProfileScreen() {
           />
         </ProfileSection>
 
-        {/* Treatment Settings */}
-        <ProfileSection title="Treatment">
-          <SettingRow
-            icon={Settings}
-            title="Daily Goal"
-            subtitle={`${patient.targetHoursPerDay} hours per day`}
-            onPress={() => {
-              Alert.alert('Daily Goal', 'Contact your orthodontist to adjust your daily wear goal.');
-            }}
-          />
-          <View style={styles.divider} />
+        {/* Account Settings */}
+        <ProfileSection title={userRole === 'doctor' ? "Practice Settings" : "Treatment Settings"}>
+          {userRole === 'patient' && patient && (
+            <>
+              <SettingRow
+                icon={Settings}
+                title="Daily Goal"
+                subtitle={`${patient.target_hours_per_day} hours per day`}
+                onPress={() => {
+                  Alert.alert('Daily Goal', 'Contact your orthodontist to adjust your daily wear goal.');
+                }}
+              />
+              <View style={styles.divider} />
+            </>
+          )}
           <SettingRow
             icon={Download}
             title="Export Data"
-            subtitle="Download your treatment history"
+            subtitle={userRole === 'doctor' ? "Download practice data" : "Download your treatment history"}
             onPress={handleDataExport}
           />
         </ProfileSection>
@@ -216,6 +261,7 @@ export default function ProfileScreen() {
         <View style={styles.appInfo}>
           <Text style={styles.appInfoText}>BioLign Progress v1.0.0</Text>
           <Text style={styles.appInfoText}>© 2024 BioLign Orthodontics</Text>
+          <Text style={styles.appInfoText}>Role: {getRoleDisplayName()}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -239,10 +285,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textPrimary,
   },
-  patientCard: {
+  userCard: {
     marginBottom: Spacing.lg,
   },
-  patientInfo: {
+  userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: Spacing.md,
@@ -256,24 +302,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: Spacing.md,
   },
-  patientDetails: {
+  userDetails: {
     flex: 1,
   },
-  patientName: {
+  userName: {
     fontSize: 20,
     fontWeight: '700',
     color: Colors.textPrimary,
     marginBottom: Spacing.xs,
   },
-  patientEmail: {
+  userEmail: {
     fontSize: 14,
     color: Colors.textSecondary,
     marginBottom: Spacing.xs,
   },
-  patientStatus: {
+  roleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginBottom: Spacing.xs,
+  },
+  roleText: {
     fontSize: 12,
-    color: Colors.primary,
+    color: Colors.background,
     fontWeight: '600',
+  },
+  userStatus: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   treatmentProgress: {
     alignItems: 'center',

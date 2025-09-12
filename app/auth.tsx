@@ -1,5 +1,5 @@
-// app/auth.tsx - COMPLETE REPLACEMENT
-import React, { useState, useEffect } from 'react'
+// app/auth.tsx - FIXED VERSION WITHOUT INFINITE LOOPS
+import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, TextInput, StyleSheet, Alert, ScrollView } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Button } from '@/components/Button'
@@ -14,21 +14,24 @@ export default function AuthScreen() {
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   
-  const { signIn, signUp } = usePatientStore()
+  const { signIn, signUp, clearAuth } = usePatientStore()
   const params = useLocalSearchParams()
   
   // Get role and invitation code from params
   const role = (params.role as string) || 'patient'
   const invitationCode = params.invitationCode as string
 
+  // Clear auth state once when component mounts
   useEffect(() => {
-    // If coming from role selection, default to sign up
+    clearAuth()
+    
+    // Set default to sign up if coming from role selection
     if (params.role) {
       setIsSignUp(true)
     }
-  }, [params])
+  }, []) // Empty dependency array to run only once
 
-  const handleAuth = async () => {
+  const handleAuth = useCallback(async () => {
     if (!email || !password || (isSignUp && !name)) {
       Alert.alert('Error', 'Please fill in all fields')
       return
@@ -44,63 +47,85 @@ export default function AuthScreen() {
     try {
       let result
       if (isSignUp) {
+        console.log('Attempting signUp...')
         result = await signUp(email, password, name, role, invitationCode)
+        
         if (!result.error) {
+          console.log('SignUp successful')
           Alert.alert(
             'Success!', 
             role === 'doctor' ? 
               'Doctor account created successfully!' : 
-              'Account created successfully. You can now start tracking your orthodontic journey!'
+              'Account created successfully!',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  console.log('Navigating to tabs...')
+                  router.replace('/(tabs)')
+                }
+              }
+            ]
           )
+        } else {
+          console.log('SignUp error:', result.error)
+          Alert.alert('Error', result.error.message)
         }
       } else {
+        console.log('Attempting signIn...')
         result = await signIn(email, password)
-      }
-
-      if (result.error) {
-        Alert.alert('Error', result.error.message)
-      } else {
-        router.replace('/(tabs)')
+        
+        if (!result.error) {
+          console.log('SignIn successful, navigating...')
+          router.replace('/(tabs)')
+        } else {
+          console.log('SignIn error:', result.error)
+          Alert.alert('Error', result.error.message)
+        }
       }
     } catch (error) {
+      console.error('Auth exception:', error)
       Alert.alert('Error', 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
-  }
+  }, [email, password, name, isSignUp, role, invitationCode, signUp, signIn])
 
-  const handleDemoLogin = async () => {
+  const handleToggleMode = useCallback(() => {
+    setIsSignUp(!isSignUp)
+  }, [isSignUp])
+
+  const handleDemoLogin = useCallback(async (demoType: 'patient' | 'doctor') => {
     setLoading(true)
     try {
-      // Demo doctor login
-      if (role === 'doctor') {
-        const result = await signIn('doctor@biolign.com', 'demo123')
-        if (result.error) {
-          const signUpResult = await signUp('doctor@biolign.com', 'demo123', 'Dr. Demo', 'doctor')
-          if (!signUpResult.error) {
-            router.replace('/(tabs)')
-          }
-        } else {
+      const demoCredentials = {
+        patient: { email: 'demo.patient@biolign.com', password: 'demo123', name: 'Demo Patient' },
+        doctor: { email: 'demo.doctor@biolign.com', password: 'demo123', name: 'Dr. Demo' }
+      }
+      
+      const creds = demoCredentials[demoType]
+      
+      // Try to sign in first
+      const result = await signIn(creds.email, creds.password)
+      
+      if (result.error) {
+        // If sign in fails, try to create account
+        console.log('Sign in failed, creating demo account...')
+        const signUpResult = await signUp(creds.email, creds.password, creds.name, demoType)
+        if (!signUpResult.error) {
           router.replace('/(tabs)')
+        } else {
+          Alert.alert('Error', signUpResult.error?.message || 'Could not create demo account')
         }
       } else {
-        // Demo patient login
-        const result = await signIn('demo@biolign.com', 'demo123')
-        if (result.error) {
-          const signUpResult = await signUp('demo@biolign.com', 'demo123', 'Demo Patient', 'patient')
-          if (!signUpResult.error) {
-            router.replace('/(tabs)')
-          }
-        } else {
-          router.replace('/(tabs)')
-        }
+        router.replace('/(tabs)')
       }
     } catch (error) {
-      Alert.alert('Error', 'Could not create demo account')
+      Alert.alert('Error', 'Could not access demo account')
     } finally {
       setLoading(false)
     }
-  }
+  }, [signIn, signUp])
 
   const getRoleTitle = () => {
     return role === 'doctor' ? 'Doctor Portal' : 'Patient Portal'
@@ -181,7 +206,7 @@ export default function AuthScreen() {
 
           <Button
             title={isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
-            onPress={() => setIsSignUp(!isSignUp)}
+            onPress={handleToggleMode}
             variant="outline"
             style={styles.secondaryButton}
           />
@@ -192,13 +217,25 @@ export default function AuthScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          <Button
-            title={`Try Demo ${role === 'doctor' ? 'Doctor' : 'Patient'} Account`}
-            onPress={handleDemoLogin}
-            variant="secondary"
-            disabled={loading}
-            style={styles.demoButton}
-          />
+          <View style={styles.demoSection}>
+            <Text style={styles.demoTitle}>Try Demo Accounts</Text>
+            <View style={styles.demoButtons}>
+              <Button
+                title="Demo Patient"
+                onPress={() => handleDemoLogin('patient')}
+                variant="secondary"
+                disabled={loading}
+                style={styles.demoButton}
+              />
+              <Button
+                title="Demo Doctor"
+                onPress={() => handleDemoLogin('doctor')}
+                variant="secondary"
+                disabled={loading}
+                style={styles.demoButton}
+              />
+            </View>
+          </View>
 
           {!params.role && (
             <Button
@@ -312,8 +349,22 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: '600',
   },
-  demoButton: {
+  demoSection: {
+    marginBottom: Spacing.lg,
+  },
+  demoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    textAlign: 'center',
     marginBottom: Spacing.md,
+  },
+  demoButtons: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  demoButton: {
+    flex: 1,
   },
   backButton: {
     marginBottom: Spacing.lg,

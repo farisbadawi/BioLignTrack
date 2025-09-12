@@ -1,4 +1,4 @@
-// app/_layout.tsx - COMPLETE REPLACEMENT
+// app/_layout.tsx - FINAL WORKING VERSION
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -8,10 +8,10 @@ import { StatusBar } from "expo-status-bar";
 import { View, Text, ActivityIndicator } from "react-native";
 import { usePatientStore } from "@/stores/patient-store";
 import { Colors } from "@/constants/colors";
-import AuthScreen from "./auth";
-import RoleSelectionScreen from "./role-selection";
+import { supabase } from "@/lib/supabase";
+import { useRouter } from "expo-router";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
+// Prevent the splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
@@ -19,9 +19,18 @@ const queryClient = new QueryClient();
 // Loading component
 function LoadingScreen() {
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.surface }}>
+    <View style={{ 
+      flex: 1, 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      backgroundColor: Colors.surface 
+    }}>
       <ActivityIndicator size="large" color={Colors.primary} />
-      <Text style={{ marginTop: 16, fontSize: 16, color: Colors.textSecondary }}>
+      <Text style={{ 
+        marginTop: 16, 
+        fontSize: 16, 
+        color: Colors.textSecondary 
+      }}>
         Loading...
       </Text>
     </View>
@@ -30,22 +39,32 @@ function LoadingScreen() {
 
 function RootLayoutNav() {
   const [isReady, setIsReady] = useState(false);
-  const [showRoleSelection, setShowRoleSelection] = useState(false);
-  const { initialize, profile, loading } = usePatientStore();
+  const [initialRouteSet, setInitialRouteSet] = useState(false);
+  const router = useRouter();
+  const { 
+    profile, 
+    isAuthenticated, 
+    loading,
+    initialize, 
+    clearAuth 
+  } = usePatientStore();
 
+  // Initial setup
   useEffect(() => {
     const setup = async () => {
       try {
-        await initialize();
+        const { data: { session } } = await supabase.auth.getSession();
         
-        // Check if this is first time user (no profile found)
-        // Show role selection if no user is logged in
-        if (!profile) {
-          setShowRoleSelection(true);
+        if (session?.user) {
+          console.log('Found existing session, initializing...');
+          await initialize();
+        } else {
+          console.log('No existing session found');
+          clearAuth();
         }
       } catch (error) {
-        console.error('Initialization error:', error);
-        setShowRoleSelection(true);
+        console.error('Setup error:', error);
+        clearAuth();
       } finally {
         setIsReady(true);
         SplashScreen.hideAsync();
@@ -53,42 +72,54 @@ function RootLayoutNav() {
     };
     
     setup();
-  }, [initialize]);
+  }, []);
 
-  // Show loading screen while initializing
-  if (!isReady || loading) {
+  // Handle initial routing
+  useEffect(() => {
+    if (!isReady || initialRouteSet || loading) return;
+
+    if (isAuthenticated && profile) {
+      console.log('User authenticated, going to tabs');
+      router.replace('/(tabs)');
+    } else {
+      console.log('User not authenticated, going to role selection');
+      router.replace('/role-selection');
+    }
+    
+    setInitialRouteSet(true);
+  }, [isReady, isAuthenticated, profile, loading, initialRouteSet, router]);
+
+  // Auth state listener
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event);
+        
+        if (event === 'SIGNED_IN' && session?.user) {
+          console.log('User signed in, initializing...');
+          await initialize();
+        } else if (event === 'SIGNED_OUT') {
+          console.log('User signed out, clearing auth...');
+          clearAuth();
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [initialize, clearAuth]);
+
+  if (!isReady) {
     return <LoadingScreen />;
   }
 
-  // Show role selection for new users
-  if (!profile && showRoleSelection) {
-    return (
-      <>
-        <StatusBar style="dark" backgroundColor="#f8fafc" />
-        <RoleSelectionScreen />
-      </>
-    );
-  }
-
-  // Show auth screen if user is not logged in
-  if (!profile) {
-    return (
-      <>
-        <StatusBar style="dark" backgroundColor="#f8fafc" />
-        <AuthScreen />
-      </>
-    );
-  }
-
-  // Show main app if user is logged in
   return (
     <>
       <StatusBar style="dark" backgroundColor="#f8fafc" />
-      <Stack screenOptions={{ headerBackTitle: "Back" }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: "modal" }} />
-        <Stack.Screen name="auth" options={{ headerShown: false }} />
-        <Stack.Screen name="role-selection" options={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="role-selection" />
+        <Stack.Screen name="auth" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="+not-found" />
       </Stack>
     </>
   );
