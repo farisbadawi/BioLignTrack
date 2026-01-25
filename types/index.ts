@@ -4,8 +4,27 @@ export interface Profile {
   name: string
   email: string
   role: 'patient' | 'doctor' | 'admin'
+  doctor_code?: string | null
   created_at: string
   updated_at: string
+}
+
+export interface PatientInvitation {
+  id: string
+  doctor_id: string
+  patient_email: string
+  invitation_code: string
+  status: 'pending' | 'accepted' | 'expired'
+  created_at: string
+  expires_at: string
+}
+
+export interface DoctorPatient {
+  id: string
+  doctor_id: string
+  patient_id: string
+  status: 'active' | 'inactive'
+  assigned_date: string
 }
 
 export interface Patient {

@@ -11,17 +11,22 @@ import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { ProgressRing } from '@/components/ProgressRing';
 import { router } from 'expo-router';
+import { ActivityIndicator } from 'react-native';
+import { useTheme } from '@/contexts/ThemeContext';
 
 // Patient Dashboard Component
 function PatientDashboard() {
-  const { 
-    patient, 
+  const {
+    patient,
     profile,
-    todayWearMinutes, 
+    todayWearMinutes,
     unreadMessages,
     currentSession,
-    getWeeklyProgress
+    getWeeklyProgress,
+    startWearSession,
+    stopWearSession
   } = usePatientStore();
+  const { colors: themeColors } = useTheme();
 
   if (!patient || !profile) return null;
 
@@ -45,19 +50,19 @@ function PatientDashboard() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.surface }]}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: themeColors.surface }]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Good morning,</Text>
-            <Text style={styles.patientName}>{patient.name}</Text>
+            <Text style={[styles.greeting, { color: themeColors.textSecondary }]}>Good morning,</Text>
+            <Text style={[styles.patientName, { color: themeColors.textPrimary }]}>{patient.name}</Text>
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.notificationButton}
             onPress={() => router.push('/messages')}
           >
-            <MessageCircle size={24} color={Colors.textSecondary} />
+            <MessageCircle size={24} color={themeColors.textSecondary} />
             {unreadMessages > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadMessages}</Text>
@@ -91,22 +96,16 @@ function PatientDashboard() {
           
           <View style={styles.progressActions}>
             {currentSession ? (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.actionButton, styles.stopButton]}
-                onPress={() => {
-                  // Add stop session logic here
-                  console.log('Stop session');
-                }}
+                onPress={stopWearSession}
               >
                 <Text style={styles.stopButtonText}>Stop Session</Text>
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.actionButton, styles.startButton]}
-                onPress={() => {
-                  // Add start session logic here
-                  console.log('Start session');
-                }}
+                onPress={startWearSession}
               >
                 <Text style={styles.startButtonText}>Start Wearing</Text>
               </TouchableOpacity>
@@ -218,7 +217,8 @@ function PatientDashboard() {
             {weeklyData.map((day, index) => {
               const dayName = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' });
               const height = Math.max((day.hours / targetHours) * 60, 4);
-              const isToday = index === weeklyData.length - 1;
+              const today = new Date().toISOString().split('T')[0];
+              const isToday = day.date === today;
               
               return (
                 <View key={day.date} style={styles.chartDay}>
@@ -252,20 +252,30 @@ function PatientDashboard() {
 
 // Doctor Dashboard Component (from your existing code)
 function DoctorDashboard() {
-  const { 
-    profile, 
-    assignedPatients, 
-    unreadMessages, 
-    invitations 
+  const {
+    profile,
+    assignedPatients,
+    unreadMessages,
+    invitations
   } = usePatientStore();
+  const { colors: themeColors } = useTheme();
 
   if (!profile) return null;
 
   const activePatients = assignedPatients.length;
   const pendingInvitations = invitations.filter(inv => inv.status === 'pending').length;
-  
+
+  // Calculate urgent patients based on actual compliance data
   const urgentPatients = assignedPatients.filter(patient => {
-    return Math.random() > 0.8;
+    // A patient needs attention if they have low compliance or are behind on trays
+    const patientData = patient.patientData;
+    if (!patientData) return false;
+    // Mark as urgent if current tray is significantly behind expected progress
+    const daysSinceStart = patientData.treatment_start_date
+      ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays);
+    return patientData.current_tray < expectedTray - 1;
   }).length;
 
   const StatCard = ({ icon: Icon, title, value, subtitle, color = Colors.primary, onPress }: any) => (
@@ -282,18 +292,18 @@ function DoctorDashboard() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.surface }]}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: themeColors.surface }]} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Good morning,</Text>
-            <Text style={styles.doctorName}>Dr. {profile.name?.replace('Dr. ', '') || profile.name}</Text>
+            <Text style={[styles.greeting, { color: themeColors.textSecondary }]}>Good morning,</Text>
+            <Text style={[styles.doctorName, { color: themeColors.textPrimary }]}>Dr. {profile.name?.replace('Dr. ', '') || profile.name}</Text>
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.notificationButton}
             onPress={() => router.push('/messages')}
           >
-            <MessageCircle size={24} color={Colors.textSecondary} />
+            <MessageCircle size={24} color={themeColors.textSecondary} />
             {unreadMessages > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadMessages}</Text>
@@ -360,6 +370,7 @@ export default function HomeScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>

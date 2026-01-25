@@ -1,15 +1,61 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Send, Paperclip, AlertCircle, Clock, ArrowLeft, User } from 'lucide-react-native';
+import { Send, Paperclip, AlertCircle, Clock, ArrowLeft, User, RefreshCw } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { router } from 'expo-router';
+import { supabase } from '@/lib/supabase';
 
 // Patient List Component for Doctors
 function PatientListView() {
-  const { assignedPatients, messages } = usePatientStore();
+  const { assignedPatients, messages, loadAssignedPatients, loadMessages, profile } = usePatientStore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Set up real-time subscription for new patients and messages
+  useEffect(() => {
+    if (!profile) return;
+
+    // Subscribe to new doctor-patient relationships
+    const patientSubscription = supabase
+      .channel('doctor-patients-changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'doctor_patients',
+        filter: `doctor_id=eq.${profile.id}`
+      }, () => {
+        console.log('New patient linked!');
+        loadAssignedPatients();
+      })
+      .subscribe();
+
+    // Subscribe to new messages
+    const messageSubscription = supabase
+      .channel('messages-changes')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `recipient_id=eq.${profile.id}`
+      }, () => {
+        console.log('New message received!');
+        loadMessages();
+      })
+      .subscribe();
+
+    return () => {
+      patientSubscription.unsubscribe();
+      messageSubscription.unsubscribe();
+    };
+  }, [profile, loadAssignedPatients, loadMessages]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadAssignedPatients(), loadMessages()]);
+    setRefreshing(false);
+  };
 
   const getLastMessage = (patientId: string) => {
     const patientMessages = messages.filter(
@@ -77,10 +123,21 @@ function PatientListView() {
   return (
     <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <Text style={styles.title}>Messages</Text>
-        <Text style={styles.subtitle}>
-          {assignedPatients.length} patients
-        </Text>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.title}>Messages</Text>
+            <Text style={styles.subtitle}>
+              {assignedPatients.length} patients
+            </Text>
+          </View>
+          <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+            {refreshing ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <RefreshCw size={24} color={Colors.primary} />
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.patientsList}>
@@ -104,17 +161,97 @@ function PatientListView() {
 
 // Direct Chat Component for Patients
 function DirectChatView() {
-  const { messages, addMessage, markMessagesRead, patient, assignedDoctor } = usePatientStore();
+  const { messages, markMessagesRead, patient, assignedDoctor, profile, loadMessages } = usePatientStore();
   const [newMessage, setNewMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  React.useEffect(() => {
-    markMessagesRead();
-  }, [markMessagesRead]);
+  // Load messages between patient and doctor
+  useEffect(() => {
+    if (profile && assignedDoctor) {
+      loadChatMessages();
+    }
+  }, [profile, assignedDoctor]);
 
-  const handleSendMessage = () => {
-    if (newMessage.trim()) {
-      addMessage(newMessage.trim(), 'patient');
-      setNewMessage('');
+  // Set up real-time subscription for new messages
+  useEffect(() => {
+    if (!profile || !assignedDoctor) return;
+
+    const subscription = supabase
+      .channel('patient-messages')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `recipient_id=eq.${profile.id}`
+      }, async (payload) => {
+        console.log('New message received!');
+        setChatMessages(prev => [...prev, payload.new]);
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+
+        // Mark the new message as read since we're viewing the chat
+        await markMessagesRead(assignedDoctor.id);
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [profile, assignedDoctor, markMessagesRead]);
+
+  const loadChatMessages = async () => {
+    if (!profile || !assignedDoctor) return;
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${profile.id},recipient_id.eq.${assignedDoctor.id}),and(sender_id.eq.${assignedDoctor.id},recipient_id.eq.${profile.id})`)
+      .order('created_at', { ascending: true });
+
+    if (!error && data) {
+      setChatMessages(data);
+      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: false }), 100);
+
+      // Mark messages from doctor as read
+      await markMessagesRead(assignedDoctor.id);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !profile || !assignedDoctor || sending) return;
+
+    setSending(true);
+    const messageContent = newMessage.trim();
+    setNewMessage('');
+
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          sender_id: profile.id,
+          recipient_id: assignedDoctor.id,
+          content: messageContent,
+          read: false
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Send message error:', error);
+        setNewMessage(messageContent);
+        return;
+      }
+
+      if (data) {
+        setChatMessages(prev => [...prev, data]);
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    } catch (error) {
+      console.error('Send message error:', error);
+      setNewMessage(messageContent);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -126,26 +263,45 @@ function DirectChatView() {
   ];
 
   const MessageBubble = ({ message }: { message: any }) => {
-    const isPatient = message.sender === 'patient';
-    
+    const isOwnMessage = message.sender_id === profile?.id;
+
     return (
-      <View style={[styles.messageBubble, isPatient ? styles.patientMessage : styles.doctorMessage]}>
-        <Text style={[styles.messageText, isPatient ? styles.patientMessageText : styles.doctorMessageText]}>
+      <View style={[styles.messageBubble, isOwnMessage ? styles.patientMessage : styles.doctorMessage]}>
+        <Text style={[styles.messageText, isOwnMessage ? styles.patientMessageText : styles.doctorMessageText]}>
           {message.content}
         </Text>
-        <Text style={[styles.messageTime, isPatient ? styles.patientMessageTime : styles.doctorMessageTime]}>
-          {new Date(message.createdAt).toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
-            minute: '2-digit' 
+        <Text style={[styles.messageTime, isOwnMessage ? styles.patientMessageTime : styles.doctorMessageTime]}>
+          {new Date(message.created_at).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit'
           })}
         </Text>
       </View>
     );
   };
 
+  // Show message if no doctor is assigned
+  if (!assignedDoctor) {
+    return (
+      <View style={styles.noDoctorContainer}>
+        <User size={64} color={Colors.textSecondary} />
+        <Text style={styles.noDoctorTitle}>No Doctor Linked</Text>
+        <Text style={styles.noDoctorSubtitle}>
+          Enter your doctor's code in Profile settings to start messaging
+        </Text>
+        <TouchableOpacity
+          style={styles.goToProfileButton}
+          onPress={() => router.push('/(tabs)/profile')}
+        >
+          <Text style={styles.goToProfileButtonText}>Go to Profile</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <KeyboardAvoidingView 
-      style={styles.chatContainer} 
+    <KeyboardAvoidingView
+      style={styles.chatContainer}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       {/* Chat Header */}
@@ -172,11 +328,22 @@ function DirectChatView() {
       </Card>
 
       {/* Messages */}
-      <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.messagesContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.messagesList}>
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
-          ))}
+          {chatMessages.length === 0 ? (
+            <View style={styles.emptyMessages}>
+              <Text style={styles.emptyMessagesText}>No messages yet</Text>
+              <Text style={styles.emptyMessagesSubtext}>Send a message to your doctor</Text>
+            </View>
+          ) : (
+            chatMessages.map((message) => (
+              <MessageBubble key={message.id} message={message} />
+            ))
+          )}
         </View>
       </ScrollView>
 
@@ -215,16 +382,17 @@ function DirectChatView() {
             multiline
             maxLength={500}
           />
-          <TouchableOpacity style={styles.attachButton}>
-            <Paperclip size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
         </View>
         <TouchableOpacity
-          style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
+          style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}
           onPress={handleSendMessage}
-          disabled={!newMessage.trim()}
+          disabled={!newMessage.trim() || sending}
         >
-          <Send size={20} color={Colors.background} />
+          {sending ? (
+            <ActivityIndicator size="small" color={Colors.background} />
+          ) : (
+            <Send size={20} color={Colors.background} />
+          )}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -236,7 +404,7 @@ export default function MessagesScreen() {
   const { userRole } = usePatientStore();
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {userRole === 'doctor' ? <PatientListView /> : <DirectChatView />}
     </SafeAreaView>
   );
@@ -254,6 +422,14 @@ const styles = StyleSheet.create({
   header: {
     paddingVertical: Spacing.lg,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  refreshButton: {
+    padding: Spacing.sm,
+  },
   title: {
     fontSize: 28,
     fontWeight: '700',
@@ -262,6 +438,20 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
+    color: Colors.textSecondary,
+  },
+  emptyMessages: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl * 2,
+  },
+  emptyMessagesText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  emptyMessagesSubtext: {
+    fontSize: 14,
     color: Colors.textSecondary,
   },
   patientsList: {
@@ -527,11 +717,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textPrimary,
     maxHeight: 100,
-    minHeight: 20,
-  },
-  attachButton: {
-    padding: Spacing.xs,
-    marginLeft: Spacing.sm,
+    minHeight: 40,
+    paddingTop: 10,
+    paddingBottom: 10,
+    textAlignVertical: 'center',
   },
   sendButton: {
     width: 44,
@@ -543,5 +732,36 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     backgroundColor: Colors.border,
+  },
+  noDoctorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  noDoctorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  noDoctorSubtitle: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.lg,
+  },
+  goToProfileButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+  },
+  goToProfileButtonText: {
+    color: Colors.background,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

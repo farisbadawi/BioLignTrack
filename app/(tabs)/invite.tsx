@@ -1,22 +1,36 @@
-// app/(tabs)/invite.tsx
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Share } from 'react-native';
+// app/(tabs)/invite.tsx - Simplified: Just doctor code sharing
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Share, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { UserPlus, Mail, Copy, Share as ShareIcon, Clock, CheckCircle } from 'lucide-react-native';
+import { Key, Copy, Share as ShareIcon, Users } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
-import { Button } from '@/components/Button';
+import { useCustomAlert } from '@/components/CustomAlert';
+import * as Clipboard from 'expo-clipboard';
 
 export default function InviteScreen() {
-  const { invitations, userRole, createPatientInvitation, loadInvitations } = usePatientStore();
-  const [patientEmail, setPatientEmail] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { userRole, getDoctorCode, assignedPatients } = usePatientStore();
+  const [doctorCode, setDoctorCode] = useState<string | null>(null);
+  const [loadingCode, setLoadingCode] = useState(true);
+  const { showAlert, AlertComponent } = useCustomAlert();
+
+  useEffect(() => {
+    const fetchDoctorCode = async () => {
+      if (userRole === 'doctor') {
+        setLoadingCode(true);
+        const code = await getDoctorCode?.();
+        setDoctorCode(code || null);
+        setLoadingCode(false);
+      }
+    };
+    fetchDoctorCode();
+  }, [userRole, getDoctorCode]);
 
   // Only show this screen for doctors
   if (userRole !== 'doctor') {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Access denied. This page is for doctors only.</Text>
         </View>
@@ -24,213 +38,143 @@ export default function InviteScreen() {
     );
   }
 
-  const handleInvitePatient = async () => {
-    if (!patientEmail.trim()) {
-      Alert.alert('Email Required', 'Please enter the patient\'s email address');
-      return;
-    }
-
-    if (!patientEmail.includes('@')) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address');
-      return;
-    }
-
-    setLoading(true);
-    
+  const copyToClipboard = async () => {
+    if (!doctorCode) return;
     try {
-      const result = await createPatientInvitation(patientEmail.trim());
-      
-      if (result.success && result.invitationCode) {
-        setPatientEmail('');
-        Alert.alert(
-          'Invitation Sent!',
-          `Invitation code ${result.invitationCode} has been generated. Share this code with your patient.`,
-          [
-            {
-              text: 'Share Code',
-              onPress: () => handleShareInvitation(result.invitationCode!, patientEmail)
-            },
-            { text: 'OK' }
-          ]
-        );
-      } else {
-        Alert.alert('Error', result.error || 'Failed to create invitation');
-      }
+      await Clipboard.setStringAsync(doctorCode);
+      showAlert({
+        title: 'Copied!',
+        message: 'Your doctor code has been copied to clipboard',
+        type: 'success',
+      });
     } catch (error) {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+      showAlert({
+        title: 'Error',
+        message: 'Failed to copy to clipboard',
+        type: 'error',
+      });
     }
   };
 
-  const handleShareInvitation = async (code: string, email: string) => {
-    const message = `You've been invited to join BioLign Progress for your orthodontic treatment tracking.\n\nInvitation Code: ${code}\n\nDownload the app and use this code to get started with tracking your aligner progress.`;
-    
+  const shareCode = async () => {
+    if (!doctorCode) return;
+    const message = `Join me on BioLignTrack to track your orthodontic treatment!\n\nUse this code when signing up:\n\n${doctorCode}\n\nDownload the app and enter this code to link your account with mine.`;
+
     try {
       await Share.share({
         message: message,
-        title: 'BioLign Progress Invitation'
+        title: 'BioLignTrack - Doctor Code'
       });
     } catch (error) {
       console.error('Share error:', error);
     }
   };
 
-  const copyToClipboard = (code: string) => {
-    // In a real app, you'd use Clipboard.setString from @react-native-clipboard/clipboard
-    Alert.alert('Copied!', `Invitation code ${code} copied to clipboard`);
-  };
-
-  const InvitationCard = ({ invitation }: { invitation: any }) => {
-    const getStatusColor = (status: string) => {
-      switch (status) {
-        case 'accepted': return Colors.success;
-        case 'pending': return Colors.warning;
-        case 'expired': return Colors.error;
-        default: return Colors.textSecondary;
-      }
-    };
-
-    const getStatusIcon = (status: string) => {
-      switch (status) {
-        case 'accepted': return CheckCircle;
-        case 'pending': return Clock;
-        default: return Clock;
-      }
-    };
-
-    const StatusIcon = getStatusIcon(invitation.status);
-
-    return (
-      <Card style={styles.invitationCard}>
-        <View style={styles.invitationHeader}>
-          <View style={styles.invitationInfo}>
-            <Text style={styles.patientEmail}>{invitation.patient_email}</Text>
-            <Text style={styles.invitationCode}>Code: {invitation.invitation_code}</Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(invitation.status) + '20' }]}>
-            <StatusIcon size={16} color={getStatusColor(invitation.status)} />
-            <Text style={[styles.statusText, { color: getStatusColor(invitation.status) }]}>
-              {invitation.status.charAt(0).toUpperCase() + invitation.status.slice(1)}
-            </Text>
-          </View>
-        </View>
-        
-        <View style={styles.invitationActions}>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => copyToClipboard(invitation.invitation_code)}
-          >
-            <Copy size={16} color={Colors.primary} />
-            <Text style={styles.actionText}>Copy Code</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleShareInvitation(invitation.invitation_code, invitation.patient_email)}
-          >
-            <ShareIcon size={16} color={Colors.primary} />
-            <Text style={styles.actionText}>Share</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <Text style={styles.invitationDate}>
-          Sent {new Date(invitation.created_at).toLocaleDateString()}
-        </Text>
-      </Card>
-    );
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <AlertComponent />
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Invite Patients</Text>
           <Text style={styles.subtitle}>
-            Send invitations to patients to join your practice
+            Share your code with patients to link their accounts
           </Text>
         </View>
 
-        {/* Invite Form */}
-        <Card style={styles.inviteCard}>
-          <View style={styles.formHeader}>
-            <UserPlus size={24} color={Colors.primary} />
-            <Text style={styles.formTitle}>Send New Invitation</Text>
+        {/* Doctor Code Card */}
+        <Card style={styles.codeCard}>
+          <View style={styles.codeHeader}>
+            <Key size={28} color={Colors.primary} />
+            <Text style={styles.codeTitle}>Your Doctor Code</Text>
           </View>
-          
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>Patient Email Address</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Enter patient's email address"
-              value={patientEmail}
-              onChangeText={setPatientEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-          
-          <Button
-            title={loading ? 'Sending...' : 'Send Invitation'}
-            onPress={handleInvitePatient}
-            disabled={loading || !patientEmail.trim()}
-            style={styles.sendButton}
-          />
+
+          {loadingCode ? (
+            <ActivityIndicator size="large" color={Colors.primary} style={styles.loader} />
+          ) : doctorCode ? (
+            <>
+              <View style={styles.codeDisplay}>
+                <Text style={styles.codeText}>{doctorCode}</Text>
+              </View>
+
+              <View style={styles.actionButtons}>
+                <TouchableOpacity style={styles.actionButton} onPress={copyToClipboard}>
+                  <Copy size={20} color={Colors.background} />
+                  <Text style={styles.actionButtonText}>Copy</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.actionButton, styles.shareButton]} onPress={shareCode}>
+                  <ShareIcon size={20} color={Colors.primary} />
+                  <Text style={[styles.actionButtonText, styles.shareButtonText]}>Share</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <Text style={styles.errorText}>Could not load code. Please try again.</Text>
+          )}
         </Card>
 
         {/* Instructions */}
         <Card style={styles.instructionsCard}>
           <Text style={styles.instructionsTitle}>How it works</Text>
-          <View style={styles.instructionsList}>
-            <View style={styles.instructionItem}>
-              <View style={styles.stepNumber}>
-                <Text style={styles.stepText}>1</Text>
-              </View>
-              <Text style={styles.instructionText}>
-                Enter the patient's email address and send an invitation
+
+          <View style={styles.step}>
+            <View style={styles.stepNumber}>
+              <Text style={styles.stepNumberText}>1</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Share your code</Text>
+              <Text style={styles.stepDescription}>
+                Give your code to patients verbally, via text, or use the share button
               </Text>
             </View>
-            
-            <View style={styles.instructionItem}>
-              <View style={styles.stepNumber}>
-                <Text style={styles.stepText}>2</Text>
-              </View>
-              <Text style={styles.instructionText}>
-                Share the invitation code with your patient
+          </View>
+
+          <View style={styles.step}>
+            <View style={styles.stepNumber}>
+              <Text style={styles.stepNumberText}>2</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Patient signs up</Text>
+              <Text style={styles.stepDescription}>
+                Patient downloads the app and creates an account
               </Text>
             </View>
-            
-            <View style={styles.instructionItem}>
-              <View style={styles.stepNumber}>
-                <Text style={styles.stepText}>3</Text>
-              </View>
-              <Text style={styles.instructionText}>
-                Patient downloads the app and enters the code to get started
+          </View>
+
+          <View style={styles.step}>
+            <View style={styles.stepNumber}>
+              <Text style={styles.stepNumberText}>3</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Patient enters code</Text>
+              <Text style={styles.stepDescription}>
+                During sign-up or in Profile settings, patient enters your code
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.step, { borderBottomWidth: 0 }]}>
+            <View style={styles.stepNumber}>
+              <Text style={styles.stepNumberText}>4</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>You're connected!</Text>
+              <Text style={styles.stepDescription}>
+                Patient appears in your Patients tab and you can track their progress
               </Text>
             </View>
           </View>
         </Card>
 
-        {/* Recent Invitations */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Invitations</Text>
-          
-          {invitations.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <Mail size={48} color={Colors.textSecondary} />
-              <Text style={styles.emptyTitle}>No invitations sent yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Start by sending your first patient invitation above
-              </Text>
-            </Card>
-          ) : (
-            invitations.slice(0, 10).map((invitation) => (
-              <InvitationCard key={invitation.id} invitation={invitation} />
-            ))
-          )}
-        </View>
+        {/* Patient Count */}
+        <Card style={styles.statsCard}>
+          <Users size={24} color={Colors.primary} />
+          <View style={styles.statsContent}>
+            <Text style={styles.statsValue}>{assignedPatients?.length || 0}</Text>
+            <Text style={styles.statsLabel}>Linked Patients</Text>
+          </View>
+        </Card>
       </ScrollView>
     </SafeAreaView>
   );
@@ -256,6 +200,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: Spacing.md,
   },
+  scrollContent: {
+    paddingBottom: Spacing.xl * 2,
+  },
   header: {
     paddingVertical: Spacing.lg,
   },
@@ -269,40 +216,67 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textSecondary,
   },
-  inviteCard: {
+  codeCard: {
     marginBottom: Spacing.lg,
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
   },
-  formHeader: {
+  codeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  formTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  inputContainer: {
     marginBottom: Spacing.lg,
   },
-  inputLabel: {
-    fontSize: 14,
+  codeTitle: {
+    fontSize: 20,
     fontWeight: '600',
     color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
   },
-  textInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
+  loader: {
+    marginVertical: Spacing.xl,
+  },
+  codeDisplay: {
+    backgroundColor: Colors.primary + '15',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.lg,
+    borderWidth: 2,
+    borderColor: Colors.primary + '30',
+    borderStyle: 'dashed',
+  },
+  codeText: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 6,
+    fontFamily: 'monospace',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    fontSize: 16,
-    backgroundColor: Colors.surface,
-    color: Colors.textPrimary,
   },
-  sendButton: {
-    width: '100%',
+  shareButton: {
+    backgroundColor: Colors.background,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.background,
+  },
+  shareButtonText: {
+    color: Colors.primary,
   },
   instructionsCard: {
     marginBottom: Spacing.lg,
@@ -313,111 +287,56 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: Spacing.md,
   },
-  instructionsList: {
-    gap: Spacing.md,
-  },
-  instructionItem: {
+  step: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
   stepNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 2,
+    marginRight: Spacing.md,
   },
-  stepText: {
+  stepNumberText: {
     color: Colors.background,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
   },
-  instructionText: {
+  stepContent: {
     flex: 1,
+  },
+  stepTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  stepDescription: {
     fontSize: 14,
     color: Colors.textSecondary,
     lineHeight: 20,
   },
-  section: {
+  statsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
     marginBottom: Spacing.xl,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  invitationCard: {
-    marginBottom: Spacing.sm,
-  },
-  invitationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: Spacing.md,
-  },
-  invitationInfo: {
+  statsContent: {
     flex: 1,
   },
-  patientEmail: {
-    fontSize: 16,
-    fontWeight: '600',
+  statsValue: {
+    fontSize: 24,
+    fontWeight: '700',
     color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
   },
-  invitationCode: {
+  statsLabel: {
     fontSize: 14,
     color: Colors.textSecondary,
-    fontFamily: 'monospace',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  invitationActions: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  actionText: {
-    fontSize: 14,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  invitationDate: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  emptyCard: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.xs,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
   },
 });

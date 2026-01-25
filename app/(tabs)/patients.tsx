@@ -1,15 +1,45 @@
 // app/(tabs)/patients.tsx
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Users, MessageCircle, TrendingUp, AlertCircle } from 'lucide-react-native';
+import { Users, MessageCircle, TrendingUp, AlertCircle, RefreshCw } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { router } from 'expo-router';
+import { supabase } from '@/lib/supabase';
 
 export default function PatientsScreen() {
-  const { assignedPatients, userRole } = usePatientStore();
+  const { assignedPatients, userRole, loadAssignedPatients, profile } = usePatientStore();
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Set up real-time subscription for new patients
+  useEffect(() => {
+    if (!profile || userRole !== 'doctor') return;
+
+    const subscription = supabase
+      .channel('patients-list')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'doctor_patients',
+        filter: `doctor_id=eq.${profile.id}`
+      }, () => {
+        console.log('Patient list changed!');
+        loadAssignedPatients();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [profile, userRole, loadAssignedPatients]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadAssignedPatients();
+    setRefreshing(false);
+  };
 
   // Only show this screen for doctors
   if (userRole !== 'doctor') {
@@ -22,43 +52,81 @@ export default function PatientsScreen() {
     );
   }
 
-  const PatientCard = ({ patient }: { patient: any }) => (
-    <TouchableOpacity 
-      style={styles.patientCard}
-      onPress={() => console.log('Navigate to patient detail:', patient.id)}
-    >
-      <View style={styles.patientAvatar}>
-        <Text style={styles.patientInitials}>
-          {patient.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'PA'}
-        </Text>
-      </View>
-      <View style={styles.patientInfo}>
-        <Text style={styles.patientName}>{patient.name}</Text>
-        <Text style={styles.patientDetails}>
-          Tray {patient.patientData?.current_tray || 1} of {patient.patientData?.total_trays || 24}
-        </Text>
-        <View style={styles.patientStatus}>
-          <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
-          <Text style={styles.statusText}>On track</Text>
+  const PatientCard = ({ patient }: { patient: any }) => {
+    const patientData = patient.patientData;
+    const daysSinceStart = patientData?.treatment_start_date
+      ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    const expectedTray = patientData
+      ? Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays || 24)
+      : 1;
+    const currentTray = patientData?.current_tray || 1;
+    const isOnTrack = currentTray >= expectedTray - 1;
+    const isBehind = currentTray < expectedTray - 1;
+
+    const getStatus = () => {
+      if (isBehind) return { text: 'Needs Attention', color: Colors.warning };
+      if (isOnTrack && currentTray >= expectedTray) return { text: 'On Track', color: Colors.success };
+      return { text: 'On Track', color: Colors.success };
+    };
+
+    const status = getStatus();
+
+    return (
+      <TouchableOpacity
+        style={styles.patientCard}
+        onPress={() => router.push(`/patient/${patient.id}`)}
+      >
+        <View style={styles.patientAvatar}>
+          <Text style={styles.patientInitials}>
+            {patient.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'PA'}
+          </Text>
         </View>
-      </View>
-      <View style={styles.patientActions}>
-        <TouchableOpacity style={styles.messageButton}>
-          <MessageCircle size={16} color={Colors.primary} />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.patientInfo}>
+          <Text style={styles.patientName}>{patient.name}</Text>
+          <Text style={styles.patientDetails}>
+            Tray {currentTray} of {patientData?.total_trays || 24}
+          </Text>
+          <View style={styles.patientStatus}>
+            <View style={[styles.statusDot, { backgroundColor: status.color }]} />
+            <Text style={styles.statusText}>{status.text}</Text>
+          </View>
+        </View>
+        <View style={styles.patientActions}>
+          <TouchableOpacity
+            style={styles.messageButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              router.push(`/chat/${patient.id}`);
+            }}
+          >
+            <MessageCircle size={16} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>My Patients</Text>
-          <Text style={styles.subtitle}>
-            {assignedPatients.length} active patients
-          </Text>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.title}>My Patients</Text>
+              <Text style={styles.subtitle}>
+                {assignedPatients.length} active patients
+              </Text>
+            </View>
+            <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+              {refreshing ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <RefreshCw size={24} color={Colors.primary} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Quick Stats */}
@@ -75,7 +143,17 @@ export default function PatientsScreen() {
             <View style={styles.statIcon}>
               <TrendingUp size={24} color={Colors.success} />
             </View>
-            <Text style={styles.statValue}>{Math.floor(assignedPatients.length * 0.8)}</Text>
+            <Text style={styles.statValue}>
+              {assignedPatients.filter(p => {
+                const patientData = p.patientData;
+                if (!patientData) return true;
+                const daysSinceStart = patientData.treatment_start_date
+                  ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+                  : 0;
+                const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays || 24);
+                return patientData.current_tray >= expectedTray - 1;
+              }).length}
+            </Text>
             <Text style={styles.statLabel}>On Track</Text>
           </Card>
 
@@ -83,7 +161,17 @@ export default function PatientsScreen() {
             <View style={styles.statIcon}>
               <AlertCircle size={24} color={Colors.warning} />
             </View>
-            <Text style={styles.statValue}>{Math.floor(assignedPatients.length * 0.2)}</Text>
+            <Text style={styles.statValue}>
+              {assignedPatients.filter(p => {
+                const patientData = p.patientData;
+                if (!patientData) return false;
+                const daysSinceStart = patientData.treatment_start_date
+                  ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+                  : 0;
+                const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays || 24);
+                return patientData.current_tray < expectedTray - 1;
+              }).length}
+            </Text>
             <Text style={styles.statLabel}>Need Attention</Text>
           </Card>
         </View>
@@ -137,8 +225,19 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: Spacing.md,
   },
+  scrollContent: {
+    paddingBottom: Spacing.xl * 2,
+  },
   header: {
     paddingVertical: Spacing.lg,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  refreshButton: {
+    padding: Spacing.sm,
   },
   title: {
     fontSize: 28,

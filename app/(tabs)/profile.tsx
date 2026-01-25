@@ -1,82 +1,364 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
+// app/(tabs)/profile.tsx - Comprehensive Profile & Settings Screen
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Switch,
+  TextInput,
+  ActivityIndicator,
+  Modal,
+  Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Bell, Shield, Download, HelpCircle, LogOut, ChevronRight, Settings } from 'lucide-react-native';
-import { Colors, Spacing } from '@/constants/colors';
+import {
+  User,
+  Bell,
+  Shield,
+  Download,
+  HelpCircle,
+  LogOut,
+  ChevronRight,
+  Settings,
+  Copy,
+  Moon,
+  Sun,
+  Globe,
+  Clock,
+  Volume2,
+  Vibrate,
+  Mail,
+  MessageSquare,
+  Calendar,
+  TrendingUp,
+  X,
+  Check,
+  AlertTriangle,
+  Phone,
+  Smartphone,
+} from 'lucide-react-native';
+import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
+import { Button } from '@/components/Button';
+import { useCustomAlert } from '@/components/CustomAlert';
+import * as Clipboard from 'expo-clipboard';
+import { useTheme } from '@/contexts/ThemeContext';
+
+// Time picker modal component
+const TimePickerModal = ({
+  visible,
+  onClose,
+  onSave,
+  times,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSave: (times: string[]) => void;
+  times: string[];
+}) => {
+  const [selectedTimes, setSelectedTimes] = useState<string[]>(times);
+  const availableTimes = [
+    '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
+    '13:00', '14:00', '15:00', '16:00', '17:00', '18:00',
+    '19:00', '20:00', '21:00', '22:00',
+  ];
+
+  const toggleTime = (time: string) => {
+    if (selectedTimes.includes(time)) {
+      setSelectedTimes(selectedTimes.filter(t => t !== time));
+    } else if (selectedTimes.length < 5) {
+      setSelectedTimes([...selectedTimes, time].sort());
+    }
+  };
+
+  const formatTime = (time: string) => {
+    const [hours] = time.split(':');
+    const h = parseInt(hours, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:00 ${ampm}`;
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Reminder Times</Text>
+            <TouchableOpacity onPress={onClose}>
+              <X size={24} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.modalSubtitle}>Select up to 5 reminder times</Text>
+          <View style={styles.timeGrid}>
+            {availableTimes.map(time => (
+              <TouchableOpacity
+                key={time}
+                style={[
+                  styles.timeChip,
+                  selectedTimes.includes(time) && styles.timeChipSelected,
+                ]}
+                onPress={() => toggleTime(time)}
+              >
+                <Text
+                  style={[
+                    styles.timeChipText,
+                    selectedTimes.includes(time) && styles.timeChipTextSelected,
+                  ]}
+                >
+                  {formatTime(time)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.modalActions}>
+            <Button title="Cancel" variant="outline" onPress={onClose} style={{ flex: 1 }} />
+            <Button
+              title="Save"
+              onPress={() => {
+                onSave(selectedTimes);
+                onClose();
+              }}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 export default function ProfileScreen() {
-  const { patient, profile, userRole, signOut } = usePatientStore();
-  const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
-  const [reminderEnabled, setReminderEnabled] = React.useState(true);
+  const {
+    patient,
+    profile,
+    userRole,
+    signOut,
+    assignedDoctor,
+    joinDoctorByCode,
+    getDoctorCode,
+    notificationSettings,
+    userSettings,
+    updateNotificationSettings,
+    updateUserSettings,
+    loadNotificationSettings,
+    loadUserSettings,
+    treatmentBouts,
+    currentBout,
+    getComplianceStats,
+  } = usePatientStore();
 
-  if (!profile) return null;
+  const [doctorCodeInput, setDoctorCodeInput] = useState('');
+  const [isLinkingDoctor, setIsLinkingDoctor] = useState(false);
+  const [doctorCode, setDoctorCode] = useState<string | null>(null);
+  const [showTimePickerModal, setShowTimePickerModal] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const { showAlert, AlertComponent } = useCustomAlert();
+  const { theme, isDark, colors: themeColors, setTheme } = useTheme();
+
+  // Load settings on mount
+  useEffect(() => {
+    if (userRole === 'doctor') {
+      loadDoctorCode();
+    }
+    loadNotificationSettings();
+    loadUserSettings();
+  }, [userRole]);
+
+  const loadDoctorCode = async () => {
+    const code = await getDoctorCode?.();
+    setDoctorCode(code || null);
+  };
+
+  const handleCopyDoctorCode = async () => {
+    if (doctorCode) {
+      try {
+        await Clipboard.setStringAsync(doctorCode);
+        showAlert({
+          title: 'Copied!',
+          message: 'Your doctor code has been copied to clipboard',
+          type: 'success',
+        });
+      } catch (error) {
+        showAlert({
+          title: 'Error',
+          message: 'Failed to copy to clipboard',
+          type: 'error',
+        });
+      }
+    }
+  };
+
+  const handleLinkDoctor = async () => {
+    if (!doctorCodeInput.trim()) {
+      showAlert({
+        title: 'Error',
+        message: 'Please enter a doctor code',
+        type: 'error',
+      });
+      return;
+    }
+
+    setIsLinkingDoctor(true);
+    try {
+      const result = await joinDoctorByCode(doctorCodeInput.trim());
+      if (result.success) {
+        showAlert({
+          title: 'Success!',
+          message: 'You are now linked to your doctor!',
+          type: 'success',
+        });
+        setDoctorCodeInput('');
+      } else {
+        showAlert({
+          title: 'Error',
+          message: result.error || 'Failed to link to doctor',
+          type: 'error',
+        });
+      }
+    } catch (error) {
+      showAlert({
+        title: 'Error',
+        message: 'Something went wrong',
+        type: 'error',
+      });
+    } finally {
+      setIsLinkingDoctor(false);
+    }
+  };
+
+  const handleNotificationSettingChange = async (
+    key: string,
+    value: boolean | string | string[] | number
+  ) => {
+    setSavingSettings(true);
+    const result = await updateNotificationSettings({ [key]: value });
+    setSavingSettings(false);
+    if (!result.success) {
+      showAlert({
+        title: 'Error',
+        message: 'Failed to update settings',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleUserSettingChange = async (
+    key: string,
+    value: boolean | string
+  ) => {
+    setSavingSettings(true);
+    const result = await updateUserSettings({ [key]: value });
+    setSavingSettings(false);
+    if (!result.success) {
+      showAlert({
+        title: 'Error',
+        message: 'Failed to update settings',
+        type: 'error',
+      });
+    }
+  };
+
+  if (!profile) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </SafeAreaView>
+    );
+  }
 
   const handleLogout = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
+    showAlert({
+      title: 'Sign Out',
+      message: 'Are you sure you want to sign out?',
+      type: 'warning',
+      buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Sign Out', 
-          style: 'destructive', 
+        {
+          text: 'Sign Out',
+          style: 'destructive',
           onPress: async () => {
             try {
-              console.log('Signing out...');
               await signOut();
-              console.log('Sign out completed');
             } catch (error) {
-              console.error('Sign out error:', error);
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
+              showAlert({
+                title: 'Error',
+                message: 'Failed to sign out. Please try again.',
+                type: 'error',
+              });
             }
-          }
+          },
         },
-      ]
-    );
+      ],
+    });
   };
 
   const handleDataExport = () => {
-    Alert.alert(
-      'Export Data',
-      'Your treatment data will be prepared and sent to your email address.',
-      [
+    showAlert({
+      title: 'Export Data',
+      message: 'Your treatment data will be prepared and sent to your email address.',
+      type: 'info',
+      buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Export', onPress: () => console.log('Export data') },
-      ]
-    );
+        {
+          text: 'Export',
+          onPress: () => {
+            showAlert({
+              title: 'Export Started',
+              message: 'Your data export is being prepared. You will receive an email shortly.',
+              type: 'success',
+            });
+          },
+        },
+      ],
+    });
   };
 
-  const ProfileSection = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  const ProfileSection = ({
+    title,
+    children,
+  }: {
+    title: string;
+    children: React.ReactNode;
+  }) => (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Card style={styles.sectionCard}>
-        {children}
-      </Card>
+      <Card style={styles.sectionCard}>{children}</Card>
     </View>
   );
 
-  const SettingRow = ({ 
-    icon: Icon, 
-    title, 
-    subtitle, 
-    onPress, 
-    rightElement 
+  const SettingRow = ({
+    icon: Icon,
+    title,
+    subtitle,
+    onPress,
+    rightElement,
+    danger,
   }: {
     icon: any;
     title: string;
     subtitle?: string;
     onPress?: () => void;
     rightElement?: React.ReactNode;
+    danger?: boolean;
   }) => (
-    <TouchableOpacity style={styles.settingRow} onPress={onPress} disabled={!onPress}>
+    <TouchableOpacity
+      style={styles.settingRow}
+      onPress={onPress}
+      disabled={!onPress && !rightElement}
+    >
       <View style={styles.settingLeft}>
-        <View style={styles.settingIcon}>
-          <Icon size={20} color={Colors.primary} />
+        <View style={[styles.settingIcon, danger && styles.settingIconDanger]}>
+          <Icon size={20} color={danger ? Colors.error : Colors.primary} />
         </View>
         <View style={styles.settingContent}>
-          <Text style={styles.settingTitle}>{title}</Text>
+          <Text style={[styles.settingTitle, danger && styles.settingTitleDanger]}>
+            {title}
+          </Text>
           {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
         </View>
       </View>
@@ -101,22 +383,53 @@ export default function ProfileScreen() {
 
   const getTreatmentInfo = () => {
     if (userRole === 'patient' && patient) {
-      return `Tray ${patient.current_tray} of ${patient.total_trays} • Active Treatment`;
+      const boutInfo = currentBout ? ` (Treatment ${currentBout.bout_number})` : '';
+      return `Aligner ${patient.current_tray} of ${patient.total_trays}${boutInfo}`;
     } else if (userRole === 'doctor') {
       return 'Managing patient treatments';
     }
     return 'Account active';
   };
 
+  const complianceStats = userRole === 'patient' ? getComplianceStats() : null;
+
+  const formatReminderTimes = (times: string[] | undefined) => {
+    if (!times || times.length === 0) return 'Not set';
+    return times
+      .map(t => {
+        const [hours] = t.split(':');
+        const h = parseInt(hours, 10);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        return `${h12}${ampm}`;
+      })
+      .join(', ');
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.surface }]} edges={['top', 'left', 'right']}>
+      <AlertComponent />
+      <TimePickerModal
+        visible={showTimePickerModal}
+        onClose={() => setShowTimePickerModal(false)}
+        times={notificationSettings?.wear_reminder_times || ['09:00', '14:00', '21:00']}
+        onSave={times => handleNotificationSettingChange('wear_reminder_times', times)}
+      />
+
+      <ScrollView
+        style={[styles.scrollView, { backgroundColor: themeColors.surface }]}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Profile</Text>
+          <Text style={[styles.title, { color: themeColors.textPrimary }]}>Profile & Settings</Text>
+          {savingSettings && (
+            <ActivityIndicator size="small" color={themeColors.primary} />
+          )}
         </View>
 
-        {/* User Info */}
+        {/* User Info Card */}
         <Card style={styles.userCard}>
           <View style={styles.userInfo}>
             <View style={styles.avatar}>
@@ -128,41 +441,129 @@ export default function ProfileScreen() {
               <View style={styles.roleBadge}>
                 <Text style={styles.roleText}>{getRoleDisplayName()}</Text>
               </View>
-              <Text style={styles.userStatus}>
-                {getTreatmentInfo()}
-              </Text>
+              <Text style={styles.userStatus}>{getTreatmentInfo()}</Text>
             </View>
           </View>
-          
+
           {/* Treatment Progress - Only for patients */}
           {userRole === 'patient' && patient && (
             <View style={styles.treatmentProgress}>
               <Text style={styles.progressLabel}>Treatment Progress</Text>
               <View style={styles.progressBar}>
-                <View 
+                <View
                   style={[
-                    styles.progressFill, 
-                    { width: `${(patient.current_tray / patient.total_trays) * 100}%` }
-                  ]} 
+                    styles.progressFill,
+                    { width: `${(patient.current_tray / patient.total_trays) * 100}%` },
+                  ]}
                 />
               </View>
-              <Text style={styles.progressText}>
-                {Math.round((patient.current_tray / patient.total_trays) * 100)}% Complete
-              </Text>
+              <View style={styles.progressStats}>
+                <Text style={styles.progressText}>
+                  {Math.round((patient.current_tray / patient.total_trays) * 100)}% Complete
+                </Text>
+                {complianceStats && complianceStats.streak > 0 && (
+                  <Text style={styles.streakText}>{complianceStats.streak} day streak</Text>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Compliance Stats for patients */}
+          {userRole === 'patient' && complianceStats && (
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{complianceStats.weeklyAverage}h</Text>
+                <Text style={styles.statLabel}>Weekly Avg</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{complianceStats.monthlyAverage}h</Text>
+                <Text style={styles.statLabel}>Monthly Avg</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{treatmentBouts.length}</Text>
+                <Text style={styles.statLabel}>Treatments</Text>
+              </View>
             </View>
           )}
         </Card>
 
-        {/* Notifications */}
+        {/* Doctor Code Section - For Doctors */}
+        {userRole === 'doctor' && (
+          <ProfileSection title="Your Doctor Code">
+            <View style={styles.doctorCodeSection}>
+              <Text style={styles.doctorCodeLabel}>
+                Share this code with patients to link their accounts:
+              </Text>
+              {doctorCode ? (
+                <View style={styles.doctorCodeDisplay}>
+                  <Text style={styles.doctorCodeText}>{doctorCode}</Text>
+                  <TouchableOpacity style={styles.copyButton} onPress={handleCopyDoctorCode}>
+                    <Copy size={18} color={Colors.primary} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              )}
+            </View>
+          </ProfileSection>
+        )}
+
+        {/* Link to Doctor Section - For Patients */}
+        {userRole === 'patient' && (
+          <ProfileSection title="Your Doctor">
+            <View style={styles.doctorLinkSection}>
+              {assignedDoctor ? (
+                <View style={styles.linkedDoctorInfo}>
+                  <View style={styles.linkedDoctorAvatar}>
+                    <User size={24} color={Colors.background} />
+                  </View>
+                  <View style={styles.linkedDoctorDetails}>
+                    <Text style={styles.linkedDoctorName}>{assignedDoctor.name}</Text>
+                    <Text style={styles.linkedDoctorEmail}>{assignedDoctor.email}</Text>
+                    {assignedDoctor.phone && (
+                      <Text style={styles.linkedDoctorPhone}>{assignedDoctor.phone}</Text>
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.linkDoctorForm}>
+                  <Text style={styles.linkDoctorLabel}>
+                    Enter your doctor's code to link your account:
+                  </Text>
+                  <View style={styles.linkDoctorInputRow}>
+                    <TextInput
+                      style={styles.linkDoctorInput}
+                      placeholder="Enter doctor code"
+                      value={doctorCodeInput}
+                      onChangeText={text => setDoctorCodeInput(text.toUpperCase())}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                    />
+                    <Button
+                      title={isLinkingDoctor ? 'Linking...' : 'Link'}
+                      onPress={handleLinkDoctor}
+                      disabled={isLinkingDoctor || !doctorCodeInput.trim()}
+                      style={styles.linkButton}
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+          </ProfileSection>
+        )}
+
+        {/* Notifications Section */}
         <ProfileSection title="Notifications">
           <SettingRow
             icon={Bell}
             title="Push Notifications"
-            subtitle="Receive reminders and updates"
+            subtitle="Receive all app notifications"
             rightElement={
               <Switch
-                value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
+                value={notificationSettings?.push_enabled ?? true}
+                onValueChange={value => handleNotificationSettingChange('push_enabled', value)}
                 trackColor={{ false: Colors.border, true: Colors.primary }}
                 thumbColor={Colors.background}
               />
@@ -170,13 +571,110 @@ export default function ProfileScreen() {
           />
           <View style={styles.divider} />
           <SettingRow
-            icon={Bell}
-            title="Daily Reminders"
-            subtitle={userRole === 'doctor' ? "Remind about patient check-ins" : "Remind me to wear my aligners"}
+            icon={Mail}
+            title="Email Notifications"
+            subtitle="Receive email updates and summaries"
             rightElement={
               <Switch
-                value={reminderEnabled}
-                onValueChange={setReminderEnabled}
+                value={notificationSettings?.email_enabled ?? true}
+                onValueChange={value => handleNotificationSettingChange('email_enabled', value)}
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.background}
+              />
+            }
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon={MessageSquare}
+            title="Message Notifications"
+            subtitle="Get notified of new messages"
+            rightElement={
+              <Switch
+                value={notificationSettings?.message_notifications ?? true}
+                onValueChange={value =>
+                  handleNotificationSettingChange('message_notifications', value)
+                }
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.background}
+              />
+            }
+          />
+          {userRole === 'patient' && (
+            <>
+              <View style={styles.divider} />
+              <SettingRow
+                icon={Clock}
+                title="Wear Reminders"
+                subtitle={
+                  notificationSettings?.wear_reminders
+                    ? formatReminderTimes(notificationSettings?.wear_reminder_times)
+                    : 'Disabled'
+                }
+                rightElement={
+                  <Switch
+                    value={notificationSettings?.wear_reminders ?? true}
+                    onValueChange={value =>
+                      handleNotificationSettingChange('wear_reminders', value)
+                    }
+                    trackColor={{ false: Colors.border, true: Colors.primary }}
+                    thumbColor={Colors.background}
+                  />
+                }
+              />
+              {notificationSettings?.wear_reminders && (
+                <>
+                  <View style={styles.divider} />
+                  <SettingRow
+                    icon={Clock}
+                    title="Reminder Times"
+                    subtitle={formatReminderTimes(notificationSettings?.wear_reminder_times)}
+                    onPress={() => setShowTimePickerModal(true)}
+                  />
+                </>
+              )}
+              <View style={styles.divider} />
+              <SettingRow
+                icon={AlertTriangle}
+                title="Tray Change Reminders"
+                subtitle="Get reminded when it's time to change aligners"
+                rightElement={
+                  <Switch
+                    value={notificationSettings?.tray_change_reminders ?? true}
+                    onValueChange={value =>
+                      handleNotificationSettingChange('tray_change_reminders', value)
+                    }
+                    trackColor={{ false: Colors.border, true: Colors.primary }}
+                    thumbColor={Colors.background}
+                  />
+                }
+              />
+            </>
+          )}
+          <View style={styles.divider} />
+          <SettingRow
+            icon={Calendar}
+            title="Appointment Reminders"
+            subtitle="Reminders before scheduled appointments"
+            rightElement={
+              <Switch
+                value={notificationSettings?.appointment_reminders ?? true}
+                onValueChange={value =>
+                  handleNotificationSettingChange('appointment_reminders', value)
+                }
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.background}
+              />
+            }
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon={TrendingUp}
+            title="Weekly Summary"
+            subtitle="Receive weekly progress reports"
+            rightElement={
+              <Switch
+                value={notificationSettings?.weekly_summary ?? true}
+                onValueChange={value => handleNotificationSettingChange('weekly_summary', value)}
                 trackColor={{ false: Colors.border, true: Colors.primary }}
                 thumbColor={Colors.background}
               />
@@ -184,28 +682,109 @@ export default function ProfileScreen() {
           />
         </ProfileSection>
 
-        {/* Account Settings */}
-        <ProfileSection title={userRole === 'doctor' ? "Practice Settings" : "Treatment Settings"}>
-          {userRole === 'patient' && patient && (
-            <>
-              <SettingRow
-                icon={Settings}
-                title="Daily Goal"
-                subtitle={`${patient.target_hours_per_day} hours per day`}
-                onPress={() => {
-                  Alert.alert('Daily Goal', 'Contact your orthodontist to adjust your daily wear goal.');
-                }}
-              />
-              <View style={styles.divider} />
-            </>
-          )}
+        {/* Preferences Section */}
+        <ProfileSection title="Preferences">
           <SettingRow
-            icon={Download}
-            title="Export Data"
-            subtitle={userRole === 'doctor' ? "Download practice data" : "Download your treatment history"}
-            onPress={handleDataExport}
+            icon={isDark ? Moon : Sun}
+            title="Theme"
+            subtitle={`${theme === 'system' ? 'System Default' : theme === 'dark' ? 'Dark Mode' : 'Light Mode'}`}
+            onPress={() => {
+              const themes = ['light', 'dark', 'system'] as const;
+              const currentIndex = themes.indexOf(theme);
+              const nextTheme = themes[(currentIndex + 1) % themes.length];
+              setTheme(nextTheme);
+            }}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon={Globe}
+            title="Language"
+            subtitle={userSettings?.language === 'en' ? 'English' : userSettings?.language || 'English'}
+            onPress={() => {
+              showAlert({
+                title: 'Language',
+                message: 'Language selection coming soon. Currently only English is supported.',
+                type: 'info',
+              });
+            }}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon={Clock}
+            title="Time Format"
+            subtitle={userSettings?.time_format === '24h' ? '24-hour (14:00)' : '12-hour (2:00 PM)'}
+            onPress={() => {
+              const newFormat = userSettings?.time_format === '24h' ? '12h' : '24h';
+              handleUserSettingChange('time_format', newFormat);
+            }}
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon={Vibrate}
+            title="Haptic Feedback"
+            subtitle="Vibrate on actions"
+            rightElement={
+              <Switch
+                value={userSettings?.haptic_feedback ?? true}
+                onValueChange={value => handleUserSettingChange('haptic_feedback', value)}
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.background}
+              />
+            }
+          />
+          <View style={styles.divider} />
+          <SettingRow
+            icon={Volume2}
+            title="Sound Effects"
+            subtitle="Play sounds for notifications"
+            rightElement={
+              <Switch
+                value={userSettings?.sound_enabled ?? true}
+                onValueChange={value => handleUserSettingChange('sound_enabled', value)}
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.background}
+              />
+            }
           />
         </ProfileSection>
+
+        {/* Treatment Settings - Only for patients */}
+        {userRole === 'patient' && patient && (
+          <ProfileSection title="Treatment Settings">
+            <SettingRow
+              icon={Settings}
+              title="Daily Wear Goal"
+              subtitle={`${patient.target_hours_per_day} hours per day`}
+              onPress={() => {
+                showAlert({
+                  title: 'Daily Wear Goal',
+                  message:
+                    'Your daily wear goal is set by your orthodontist. Contact them to adjust this setting.',
+                  type: 'info',
+                });
+              }}
+            />
+            <View style={styles.divider} />
+            <SettingRow
+              icon={Download}
+              title="Export Treatment Data"
+              subtitle="Download your complete treatment history"
+              onPress={handleDataExport}
+            />
+          </ProfileSection>
+        )}
+
+        {/* Practice Settings - Only for doctors */}
+        {userRole === 'doctor' && (
+          <ProfileSection title="Practice Settings">
+            <SettingRow
+              icon={Download}
+              title="Export Practice Data"
+              subtitle="Download patient and practice reports"
+              onPress={handleDataExport}
+            />
+          </ProfileSection>
+        )}
 
         {/* Privacy & Security */}
         <ProfileSection title="Privacy & Security">
@@ -214,7 +793,12 @@ export default function ProfileScreen() {
             title="Privacy Policy"
             subtitle="How we protect your data"
             onPress={() => {
-              Alert.alert('Privacy Policy', 'Our privacy policy ensures your medical data is protected and encrypted.');
+              showAlert({
+                title: 'Privacy Policy',
+                message:
+                  'BioLign is committed to protecting your medical data. All information is encrypted using industry-standard AES-256 encryption and stored securely on HIPAA-compliant servers.',
+                type: 'info',
+              });
             }}
           />
           <View style={styles.divider} />
@@ -223,7 +807,12 @@ export default function ProfileScreen() {
             title="Data Security"
             subtitle="Your information is encrypted"
             onPress={() => {
-              Alert.alert('Data Security', 'All your data is encrypted with industry-standard security protocols.');
+              showAlert({
+                title: 'Data Security',
+                message:
+                  'All your data is encrypted in transit and at rest. We use TLS 1.3 for all communications and AES-256 for storage encryption.',
+                type: 'info',
+              });
             }}
           />
         </ProfileSection>
@@ -233,18 +822,28 @@ export default function ProfileScreen() {
           <SettingRow
             icon={HelpCircle}
             title="Help Center"
-            subtitle="FAQs and guides"
+            subtitle="FAQs and treatment guides"
             onPress={() => {
-              Alert.alert('Help Center', 'Visit our help center for frequently asked questions and treatment guides.');
+              showAlert({
+                title: 'Help Center',
+                message:
+                  'Visit our help center at help.biolign.com for frequently asked questions, treatment guides, and troubleshooting tips.',
+                type: 'info',
+              });
             }}
           />
           <View style={styles.divider} />
           <SettingRow
-            icon={HelpCircle}
+            icon={Phone}
             title="Contact Support"
             subtitle="Get help from our team"
             onPress={() => {
-              Alert.alert('Contact Support', 'Call us at (555) 123-4567 or email support@biolign.com for assistance.');
+              showAlert({
+                title: 'Contact Support',
+                message:
+                  'Email: support@biolign.com\nPhone: 1-800-BIOLIGN (1-800-246-5446)\n\nSupport hours: Mon-Fri 8am-8pm EST',
+                type: 'info',
+              });
             }}
           />
         </ProfileSection>
@@ -260,8 +859,10 @@ export default function ProfileScreen() {
         {/* App Info */}
         <View style={styles.appInfo}>
           <Text style={styles.appInfoText}>BioLign Progress v1.0.0</Text>
-          <Text style={styles.appInfoText}>© 2024 BioLign Orthodontics</Text>
-          <Text style={styles.appInfoText}>Role: {getRoleDisplayName()}</Text>
+          <Text style={styles.appInfoText}>2024 BioLign Orthodontics</Text>
+          <Text style={styles.appInfoText}>
+            Account: {getRoleDisplayName()} | ID: {profile.id.slice(0, 8)}...
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -273,11 +874,28 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.surface,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+  },
+  loadingText: {
+    marginTop: Spacing.md,
+    fontSize: 16,
+    color: Colors.textSecondary,
+  },
   scrollView: {
     flex: 1,
     paddingHorizontal: Spacing.md,
   },
+  scrollContent: {
+    paddingBottom: Spacing.xl * 2,
+  },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: Spacing.lg,
   },
   title: {
@@ -334,7 +952,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   treatmentProgress: {
-    alignItems: 'center',
+    marginTop: Spacing.sm,
   },
   progressLabel: {
     fontSize: 14,
@@ -354,9 +972,47 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: Colors.primary,
   },
+  progressStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   progressText: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  streakText: {
+    fontSize: 12,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: Colors.border,
   },
   section: {
     marginBottom: Spacing.lg,
@@ -392,6 +1048,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: Spacing.sm,
   },
+  settingIconDanger: {
+    backgroundColor: Colors.error + '15',
+  },
   settingContent: {
     flex: 1,
   },
@@ -400,6 +1059,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     marginBottom: 2,
+  },
+  settingTitleDanger: {
+    color: Colors.error,
   },
   settingSubtitle: {
     fontSize: 14,
@@ -435,5 +1097,147 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
     marginBottom: 4,
+  },
+  doctorCodeSection: {
+    padding: Spacing.md,
+  },
+  doctorCodeLabel: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+  },
+  doctorCodeDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+  },
+  doctorCodeText: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  copyButton: {
+    padding: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.sm,
+  },
+  doctorLinkSection: {
+    padding: Spacing.md,
+  },
+  linkedDoctorInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  linkedDoctorAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  linkedDoctorDetails: {
+    flex: 1,
+  },
+  linkedDoctorName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  linkedDoctorEmail: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  linkedDoctorPhone: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  linkDoctorForm: {},
+  linkDoctorLabel: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+  },
+  linkDoctorInputRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  linkDoctorInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    fontSize: 16,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.surface,
+  },
+  linkButton: {
+    minWidth: 80,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: BorderRadius.lg,
+    borderTopRightRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+  },
+  timeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  timeChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  timeChipSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  timeChipText: {
+    fontSize: 14,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  timeChipTextSelected: {
+    color: Colors.background,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
   },
 });

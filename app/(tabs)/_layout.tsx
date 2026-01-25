@@ -33,8 +33,8 @@ function PatientTabLayout() {
           borderTopColor: Colors.border,
           borderTopWidth: 1,
           paddingTop: 8,
-          paddingBottom: 8,
-          height: 88,
+          paddingBottom: 28,
+          height: 90,
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -118,8 +118,8 @@ function DoctorTabLayout() {
           borderTopColor: Colors.border,
           borderTopWidth: 1,
           paddingTop: 8,
-          paddingBottom: 8,
-          height: 88,
+          paddingBottom: 28,
+          height: 90,
         },
         tabBarLabelStyle: {
           fontSize: 12,

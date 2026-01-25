@@ -1,4 +1,5 @@
-export const Colors = {
+// Light theme colors
+export const LightColors = {
   primary: '#60e4e4',
   primaryDark: '#4ccaca',
   success: '#36c7c7',
@@ -11,6 +12,24 @@ export const Colors = {
   border: '#e2e8f0',
   focusRing: '#60e4e4',
 } as const;
+
+// Dark theme colors
+export const DarkColors = {
+  primary: '#60e4e4',
+  primaryDark: '#4ccaca',
+  success: '#36c7c7',
+  warning: '#f6c35c',
+  error: '#e06767',
+  textPrimary: '#f1f5f9',
+  textSecondary: '#94a3b8',
+  background: '#0f172a',
+  surface: '#1e293b',
+  border: '#334155',
+  focusRing: '#60e4e4',
+} as const;
+
+// Default export for backwards compatibility (light theme)
+export const Colors = LightColors;
 
 export const Spacing = {
   xs: 4,
@@ -27,3 +46,17 @@ export const BorderRadius = {
   lg: 16,
   xl: 24,
 } as const;
+
+export type ThemeColors = {
+  primary: string;
+  primaryDark: string;
+  success: string;
+  warning: string;
+  error: string;
+  textPrimary: string;
+  textSecondary: string;
+  background: string;
+  surface: string;
+  border: string;
+  focusRing: string;
+};

@@ -1,22 +1,25 @@
 // app/auth.tsx - FIXED VERSION WITHOUT INFINITE LOOPS
 import React, { useState, useEffect, useCallback } from 'react'
-import { View, Text, TextInput, StyleSheet, Alert, ScrollView } from 'react-native'
+import { View, Text, TextInput, StyleSheet, ScrollView } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Button } from '@/components/Button'
 import { Colors, Spacing, BorderRadius } from '@/constants/colors'
 import { usePatientStore } from '@/stores/patient-store'
 import { router, useLocalSearchParams } from 'expo-router'
+import { useCustomAlert } from '@/components/CustomAlert'
 
 export default function AuthScreen() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+  const [doctorCode, setDoctorCode] = useState('')
   const [loading, setLoading] = useState(false)
-  
-  const { signIn, signUp, clearAuth } = usePatientStore()
+
+  const { signIn, signUp, clearAuth, joinDoctorByCode } = usePatientStore()
   const params = useLocalSearchParams()
-  
+  const { showAlert, AlertComponent } = useCustomAlert()
+
   // Get role and invitation code from params
   const role = (params.role as string) || 'patient'
   const invitationCode = params.invitationCode as string
@@ -33,63 +36,113 @@ export default function AuthScreen() {
 
   const handleAuth = useCallback(async () => {
     if (!email || !password || (isSignUp && !name)) {
-      Alert.alert('Error', 'Please fill in all fields')
+      showAlert({
+        title: 'Missing Fields',
+        message: 'Please fill in all fields',
+        type: 'error',
+      })
       return
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters')
+      showAlert({
+        title: 'Password Too Short',
+        message: 'Password must be at least 6 characters',
+        type: 'error',
+      })
       return
     }
 
     setLoading(true)
-    
+
     try {
       let result
       if (isSignUp) {
         console.log('Attempting signUp...')
         result = await signUp(email, password, name, role, invitationCode)
-        
+
         if (!result.error) {
           console.log('SignUp successful')
-          Alert.alert(
-            'Success!', 
-            role === 'doctor' ? 
-              'Doctor account created successfully!' : 
-              'Account created successfully!',
-            [
+
+          // If patient entered a doctor code, join that doctor
+          if (role === 'patient' && doctorCode.trim()) {
+            console.log('Joining doctor by code...')
+            const joinResult = await joinDoctorByCode(doctorCode.trim())
+            if (!joinResult.success) {
+              console.log('Join doctor warning:', joinResult.error)
+              showAlert({
+                title: 'Account Created',
+                message: `Your account was created but we couldn't link to the doctor: ${joinResult.error}. You can add your doctor later in Settings.`,
+                type: 'warning',
+                buttons: [
+                  {
+                    text: 'OK',
+                    onPress: () => router.replace('/(tabs)')
+                  }
+                ]
+              })
+              return
+            }
+          }
+
+          showAlert({
+            title: 'Success!',
+            message: role === 'doctor'
+              ? 'Doctor account created successfully!'
+              : doctorCode.trim()
+                ? 'Account created and linked to your doctor!'
+                : 'Account created successfully!',
+            type: 'success',
+            buttons: [
               {
                 text: 'OK',
                 onPress: () => {
-                  console.log('Navigating to tabs...')
-                  router.replace('/(tabs)')
+                  console.log('Navigating...')
+                  // Patients go to onboarding, doctors go to tabs
+                  if (role === 'patient') {
+                    router.replace('/onboarding')
+                  } else {
+                    router.replace('/(tabs)')
+                  }
                 }
               }
             ]
-          )
+          })
         } else {
           console.log('SignUp error:', result.error)
-          Alert.alert('Error', result.error.message)
+          showAlert({
+            title: 'Error',
+            message: result.error.message,
+            type: 'error',
+          })
         }
       } else {
         console.log('Attempting signIn...')
         result = await signIn(email, password)
-        
+
         if (!result.error) {
           console.log('SignIn successful, navigating...')
           router.replace('/(tabs)')
         } else {
           console.log('SignIn error:', result.error)
-          Alert.alert('Error', result.error.message)
+          showAlert({
+            title: 'Error',
+            message: result.error.message,
+            type: 'error',
+          })
         }
       }
     } catch (error) {
       console.error('Auth exception:', error)
-      Alert.alert('Error', 'Something went wrong. Please try again.')
+      showAlert({
+        title: 'Error',
+        message: 'Something went wrong. Please try again.',
+        type: 'error',
+      })
     } finally {
       setLoading(false)
     }
-  }, [email, password, name, isSignUp, role, invitationCode, signUp, signIn])
+  }, [email, password, name, isSignUp, role, invitationCode, signUp, signIn, showAlert, doctorCode, joinDoctorByCode])
 
   const handleToggleMode = useCallback(() => {
     setIsSignUp(!isSignUp)
@@ -102,12 +155,12 @@ export default function AuthScreen() {
         patient: { email: 'demo.patient@biolign.com', password: 'demo123', name: 'Demo Patient' },
         doctor: { email: 'demo.doctor@biolign.com', password: 'demo123', name: 'Dr. Demo' }
       }
-      
+
       const creds = demoCredentials[demoType]
-      
+
       // Try to sign in first
       const result = await signIn(creds.email, creds.password)
-      
+
       if (result.error) {
         // If sign in fails, try to create account
         console.log('Sign in failed, creating demo account...')
@@ -115,17 +168,25 @@ export default function AuthScreen() {
         if (!signUpResult.error) {
           router.replace('/(tabs)')
         } else {
-          Alert.alert('Error', signUpResult.error?.message || 'Could not create demo account')
+          showAlert({
+            title: 'Error',
+            message: signUpResult.error?.message || 'Could not create demo account',
+            type: 'error',
+          })
         }
       } else {
         router.replace('/(tabs)')
       }
     } catch (error) {
-      Alert.alert('Error', 'Could not access demo account')
+      showAlert({
+        title: 'Error',
+        message: 'Could not access demo account',
+        type: 'error',
+      })
     } finally {
       setLoading(false)
     }
-  }, [signIn, signUp])
+  }, [signIn, signUp, showAlert])
 
   const getRoleTitle = () => {
     return role === 'doctor' ? 'Doctor Portal' : 'Patient Portal'
@@ -139,8 +200,9 @@ export default function AuthScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+      <AlertComponent />
+      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.logo}>{role === 'doctor' ? '👨‍⚕️' : '🦷'}</Text>
           <Text style={styles.title}>{getRoleTitle()}</Text>
@@ -197,6 +259,23 @@ export default function AuthScreen() {
             )}
           </View>
 
+          {isSignUp && role === 'patient' && !invitationCode && (
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Doctor Code (Optional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your doctor's code"
+                value={doctorCode}
+                onChangeText={(text) => setDoctorCode(text.toUpperCase())}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              <Text style={styles.helpText}>
+                Ask your orthodontist for their code to link your account
+              </Text>
+            </View>
+          )}
+
           <Button
             title={loading ? 'Loading...' : (isSignUp ? 'Create Account' : 'Sign In')}
             onPress={handleAuth}
@@ -237,14 +316,12 @@ export default function AuthScreen() {
             </View>
           </View>
 
-          {!params.role && (
-            <Button
-              title="← Back to Role Selection"
-              onPress={() => router.replace('/role-selection')}
-              variant="outline"
-              style={styles.backButton}
-            />
-          )}
+          <Button
+            title="← Back to Role Selection"
+            onPress={() => router.replace('/role-selection')}
+            variant="outline"
+            style={styles.backButton}
+          />
         </View>
 
         <View style={styles.footer}>
