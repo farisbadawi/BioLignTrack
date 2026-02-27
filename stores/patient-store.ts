@@ -61,6 +61,19 @@ interface UserSettings {
   show_daily_tip: boolean
 }
 
+interface ProgressPhoto {
+  id: string
+  patient_id: string
+  bout_id: string | null
+  tray_number: number | null
+  photo_type: 'front' | 'left' | 'right' | 'top' | 'bottom' | 'other'
+  photo_url: string
+  thumbnail_url: string | null
+  notes: string | null
+  taken_at: string
+  created_at: string
+}
+
 interface Appointment {
   id: string
   patient_id: string
@@ -106,6 +119,9 @@ interface EnhancedPatientState {
   assignedPatients: any[]
   invitations: any[]
   doctorCode: string | null
+
+  // Progress photos
+  progressPhotos: ProgressPhoto[]
 
   // Doctor features
   patientNotes: PatientNote[]
@@ -179,6 +195,13 @@ interface EnhancedPatientState {
   getPatientById: (patientId: string) => Promise<any | null>
 
   // =====================================================
+  // PROGRESS PHOTO ACTIONS
+  // =====================================================
+  loadProgressPhotos: () => Promise<void>
+  uploadProgressPhoto: (photoUri: string, photoType: ProgressPhoto['photo_type']) => Promise<{ success: boolean; error?: string }>
+  deleteProgressPhoto: (photoId: string) => Promise<{ success: boolean; error?: string }>
+
+  // =====================================================
   // PATIENT NOTES ACTIONS (DOCTOR)
   // =====================================================
   loadPatientNotes: (patientId: string) => Promise<void>
@@ -234,6 +257,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   assignedPatients: [],
   invitations: [],
   doctorCode: null,
+  progressPhotos: [],
   patientNotes: [],
   notificationSettings: null,
   userSettings: null,
@@ -261,6 +285,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       assignedPatients: [],
       invitations: [],
       doctorCode: null,
+      progressPhotos: [],
       patientNotes: [],
       notificationSettings: null,
       userSettings: null,
@@ -530,7 +555,8 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         await Promise.all([
           get().loadDailyLogs(),
           get().loadTrayChanges(),
-          get().loadAppointments()
+          get().loadAppointments(),
+          get().loadProgressPhotos()
         ])
       }
     } catch (error) {
@@ -1096,6 +1122,15 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         return { success: false, error: 'Invalid or expired invitation code' }
       }
 
+      // Check if invitation has expired
+      if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
+        await supabase
+          .from('patient_invitations')
+          .update({ status: 'expired' })
+          .eq('id', invitation.id)
+        return { success: false, error: 'This invitation has expired. Please ask your doctor for a new one.' }
+      }
+
       const { profile } = get()
       if (!profile) {
         return { success: false, error: 'User not authenticated' }
@@ -1265,8 +1300,10 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         return profileData.doctor_code
       }
 
-      // Generate new code
-      const newCode = Math.random().toString(36).substring(2, 8).toUpperCase()
+      // Generate new code using crypto-safe random
+      const array = new Uint8Array(4)
+      crypto.getRandomValues(array)
+      const newCode = Array.from(array, b => b.toString(36).padStart(2, '0')).join('').substring(0, 6).toUpperCase()
 
       await supabase
         .from('profiles')
@@ -1378,16 +1415,112 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         .eq('patient_id', patientId)
         .order('bout_number', { ascending: false })
 
+      const { data: progressPhotos } = await supabase
+        .from('progress_photos')
+        .select('*')
+        .eq('patient_id', patientData?.id)
+        .order('taken_at', { ascending: false })
+
       return {
         ...patientProfile,
         patientData: patientData || null,
         dailyLogs: dailyLogs || [],
         trayChanges: trayChanges || [],
-        treatmentBouts: treatmentBouts || []
+        treatmentBouts: treatmentBouts || [],
+        progressPhotos: progressPhotos || []
       }
     } catch (error) {
       console.error('Get patient by ID error:', error)
       return null
+    }
+  },
+
+  // =====================================================
+  // PROGRESS PHOTO METHODS
+  // =====================================================
+
+  loadProgressPhotos: async () => {
+    const { patient } = get()
+    if (!patient?.id) return
+
+    try {
+      const { data: photos, error } = await supabase
+        .from('progress_photos')
+        .select('*')
+        .eq('patient_id', patient.id)
+        .order('taken_at', { ascending: false })
+
+      if (error) {
+        console.error('Load progress photos error:', error)
+        return
+      }
+
+      set({ progressPhotos: photos || [] })
+    } catch (error) {
+      console.error('Load progress photos error:', error)
+    }
+  },
+
+  uploadProgressPhoto: async (photoUri: string, photoType: ProgressPhoto['photo_type']) => {
+    const { patient, currentBout } = get()
+    if (!patient?.id) {
+      return { success: false, error: 'No patient record found' }
+    }
+
+    try {
+      // Read file as base64
+      const FileSystem = require('expo-file-system')
+      const base64 = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+
+      const dataUri = `data:image/jpeg;base64,${base64}`
+
+      const { error } = await supabase
+        .from('progress_photos')
+        .insert({
+          patient_id: patient.id,
+          bout_id: currentBout?.id || null,
+          tray_number: patient.current_tray,
+          photo_type: photoType,
+          photo_url: dataUri,
+          taken_at: new Date().toISOString(),
+        })
+
+      if (error) {
+        console.error('Upload progress photo error:', error)
+        return { success: false, error: error.message }
+      }
+
+      await get().loadProgressPhotos()
+      return { success: true }
+    } catch (error) {
+      console.error('Upload progress photo error:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  },
+
+  deleteProgressPhoto: async (photoId: string) => {
+    const { patient } = get()
+    if (!patient?.id) {
+      return { success: false, error: 'No patient record found' }
+    }
+
+    try {
+      const { error } = await supabase
+        .from('progress_photos')
+        .delete()
+        .eq('id', photoId)
+        .eq('patient_id', patient.id)
+
+      if (error) {
+        return { success: false, error: error.message }
+      }
+
+      await get().loadProgressPhotos()
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   },
 
@@ -1450,11 +1583,17 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   updatePatientNote: async (noteId: string, updates: Partial<PatientNote>) => {
+    const { profile } = get()
+    if (!profile || profile.role !== 'doctor') {
+      return { success: false, error: 'Only doctors can update notes' }
+    }
+
     try {
       const { error } = await supabase
         .from('patient_notes')
         .update(updates)
         .eq('id', noteId)
+        .eq('doctor_id', profile.id)
 
       if (error) {
         return { success: false, error: error.message }
@@ -1467,11 +1606,17 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   deletePatientNote: async (noteId: string) => {
+    const { profile } = get()
+    if (!profile || profile.role !== 'doctor') {
+      return { success: false, error: 'Only doctors can delete notes' }
+    }
+
     try {
       const { error } = await supabase
         .from('patient_notes')
         .delete()
         .eq('id', noteId)
+        .eq('doctor_id', profile.id)
 
       if (error) {
         return { success: false, error: error.message }
@@ -1521,11 +1666,25 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   updateAppointmentStatus: async (appointmentId: string, status: Appointment['status']) => {
+    const { profile, patient } = get()
+    if (!profile) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     try {
-      const { error } = await supabase
+      // Scope update to appointments the user is a participant in
+      let query = supabase
         .from('appointments')
         .update({ status })
         .eq('id', appointmentId)
+
+      if (profile.role === 'doctor') {
+        query = query.eq('doctor_id', profile.id)
+      } else if (patient?.id) {
+        query = query.eq('patient_id', patient.id)
+      }
+
+      const { error } = await query
 
       if (error) {
         return { success: false, error: error.message }
@@ -1539,14 +1698,28 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   cancelAppointment: async (appointmentId: string, reason?: string) => {
+    const { profile, patient } = get()
+    if (!profile) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     try {
-      const { error } = await supabase
+      // Scope cancellation to appointments the user is a participant in
+      let query = supabase
         .from('appointments')
         .update({
           status: 'cancelled',
           notes: reason
         })
         .eq('id', appointmentId)
+
+      if (profile.role === 'doctor') {
+        query = query.eq('doctor_id', profile.id)
+      } else if (patient?.id) {
+        query = query.eq('patient_id', patient.id)
+      }
+
+      const { error } = await query
 
       if (error) {
         return { success: false, error: error.message }

@@ -1,17 +1,20 @@
 // app/(tabs)/patients.tsx
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Users, MessageCircle, TrendingUp, AlertCircle, RefreshCw } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '@/constants/colors';
+import { Users, MessageCircle, TrendingUp, AlertCircle, RefreshCw, Search, X } from 'lucide-react-native';
+import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function PatientsScreen() {
   const { assignedPatients, userRole, loadAssignedPatients, profile } = usePatientStore();
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const { colors } = useTheme();
 
   // Set up real-time subscription for new patients
   useEffect(() => {
@@ -25,7 +28,6 @@ export default function PatientsScreen() {
         table: 'doctor_patients',
         filter: `doctor_id=eq.${profile.id}`
       }, () => {
-        console.log('Patient list changed!');
         loadAssignedPatients();
       })
       .subscribe();
@@ -34,6 +36,15 @@ export default function PatientsScreen() {
       subscription.unsubscribe();
     };
   }, [profile, userRole, loadAssignedPatients]);
+
+  // Filter patients by search query
+  const filteredPatients = useMemo(() => {
+    if (!searchQuery.trim()) return assignedPatients;
+    const query = searchQuery.toLowerCase();
+    return assignedPatients.filter(patient =>
+      patient.name?.toLowerCase().includes(query)
+    );
+  }, [assignedPatients, searchQuery]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -44,9 +55,9 @@ export default function PatientsScreen() {
   // Only show this screen for doctors
   if (userRole !== 'doctor') {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Access denied. This page is for doctors only.</Text>
+          <Text style={[styles.errorText, { color: colors.error }]}>Access denied. This page is for doctors only.</Text>
         </View>
       </SafeAreaView>
     );
@@ -65,31 +76,30 @@ export default function PatientsScreen() {
     const isBehind = currentTray < expectedTray - 1;
 
     const getStatus = () => {
-      if (isBehind) return { text: 'Needs Attention', color: Colors.warning };
-      if (isOnTrack && currentTray >= expectedTray) return { text: 'On Track', color: Colors.success };
-      return { text: 'On Track', color: Colors.success };
+      if (isBehind) return { text: 'Needs Attention', color: colors.warning };
+      return { text: 'On Track', color: colors.success };
     };
 
     const status = getStatus();
 
     return (
       <TouchableOpacity
-        style={styles.patientCard}
+        style={[styles.patientCard, { backgroundColor: colors.background, borderColor: colors.border }]}
         onPress={() => router.push(`/patient/${patient.id}`)}
       >
-        <View style={styles.patientAvatar}>
-          <Text style={styles.patientInitials}>
+        <View style={[styles.patientAvatar, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.patientInitials, { color: colors.background }]}>
             {patient.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'PA'}
           </Text>
         </View>
         <View style={styles.patientInfo}>
-          <Text style={styles.patientName}>{patient.name}</Text>
-          <Text style={styles.patientDetails}>
+          <Text style={[styles.patientName, { color: colors.textPrimary }]}>{patient.name}</Text>
+          <Text style={[styles.patientDetails, { color: colors.textSecondary }]}>
             Tray {currentTray} of {patientData?.total_trays || 24}
           </Text>
           <View style={styles.patientStatus}>
             <View style={[styles.statusDot, { backgroundColor: status.color }]} />
-            <Text style={styles.statusText}>{status.text}</Text>
+            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{status.text}</Text>
           </View>
         </View>
         <View style={styles.patientActions}>
@@ -100,7 +110,7 @@ export default function PatientsScreen() {
               router.push(`/chat/${patient.id}`);
             }}
           >
-            <MessageCircle size={16} color={Colors.primary} />
+            <MessageCircle size={16} color={colors.primary} />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -108,42 +118,62 @@ export default function PatientsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.title}>My Patients</Text>
-              <Text style={styles.subtitle}>
+              <Text style={[styles.title, { color: colors.textPrimary }]}>My Patients</Text>
+              <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                 {assignedPatients.length} active patients
               </Text>
             </View>
             <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
               {refreshing ? (
-                <ActivityIndicator size="small" color={Colors.primary} />
+                <ActivityIndicator size="small" color={colors.primary} />
               ) : (
-                <RefreshCw size={24} color={Colors.primary} />
+                <RefreshCw size={24} color={colors.primary} />
               )}
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* Search Bar */}
+        <View style={[styles.searchContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <Search size={20} color={colors.textSecondary} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.textPrimary }]}
+            placeholder="Search patients..."
+            placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <X size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* Quick Stats */}
         <View style={styles.statsGrid}>
           <Card style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Users size={24} color={Colors.primary} />
+            <View style={[styles.statIcon, { backgroundColor: colors.primary + '20' }]}>
+              <Users size={24} color={colors.primary} />
             </View>
-            <Text style={styles.statValue}>{assignedPatients.length}</Text>
-            <Text style={styles.statLabel}>Total Patients</Text>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{assignedPatients.length}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Patients</Text>
           </Card>
 
           <Card style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <TrendingUp size={24} color={Colors.success} />
+            <View style={[styles.statIcon, { backgroundColor: colors.success + '20' }]}>
+              <TrendingUp size={24} color={colors.success} />
             </View>
-            <Text style={styles.statValue}>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>
               {assignedPatients.filter(p => {
                 const patientData = p.patientData;
                 if (!patientData) return true;
@@ -154,14 +184,14 @@ export default function PatientsScreen() {
                 return patientData.current_tray >= expectedTray - 1;
               }).length}
             </Text>
-            <Text style={styles.statLabel}>On Track</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>On Track</Text>
           </Card>
 
           <Card style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <AlertCircle size={24} color={Colors.warning} />
+            <View style={[styles.statIcon, { backgroundColor: colors.warning + '20' }]}>
+              <AlertCircle size={24} color={colors.warning} />
             </View>
-            <Text style={styles.statValue}>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>
               {assignedPatients.filter(p => {
                 const patientData = p.patientData;
                 if (!patientData) return false;
@@ -172,30 +202,44 @@ export default function PatientsScreen() {
                 return patientData.current_tray < expectedTray - 1;
               }).length}
             </Text>
-            <Text style={styles.statLabel}>Need Attention</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Need Attention</Text>
           </Card>
         </View>
 
         {/* Patients List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>All Patients</Text>
-          
-          {assignedPatients.length === 0 ? (
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+            {searchQuery ? `Results (${filteredPatients.length})` : 'All Patients'}
+          </Text>
+
+          {filteredPatients.length === 0 ? (
             <Card style={styles.emptyCard}>
-              <Users size={48} color={Colors.textSecondary} />
-              <Text style={styles.emptyTitle}>No patients yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Start by inviting patients to join your practice
-              </Text>
-              <TouchableOpacity 
-                style={styles.inviteButton}
-                onPress={() => router.push(`/invite`)}
-              >
-                <Text style={styles.inviteButtonText}>Invite Patients</Text>
-              </TouchableOpacity>
+              {searchQuery ? (
+                <>
+                  <Search size={48} color={colors.textSecondary} />
+                  <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No results found</Text>
+                  <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                    No patients match "{searchQuery}"
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Users size={48} color={colors.textSecondary} />
+                  <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No patients yet</Text>
+                  <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                    Start by inviting patients to join your practice
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.inviteButton, { backgroundColor: colors.primary }]}
+                    onPress={() => router.push(`/invite`)}
+                  >
+                    <Text style={[styles.inviteButtonText, { color: colors.background }]}>Invite Patients</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </Card>
           ) : (
-            assignedPatients.map((patient) => (
+            filteredPatients.map((patient) => (
               <PatientCard key={patient.id} patient={patient} />
             ))
           )}
@@ -208,7 +252,6 @@ export default function PatientsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.surface,
   },
   errorContainer: {
     flex: 1,
@@ -218,7 +261,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: Colors.error,
     textAlign: 'center',
   },
   scrollView: {
@@ -242,12 +284,24 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
   },
   subtitle: {
     fontSize: 16,
-    color: Colors.textSecondary,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: Spacing.xs,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -263,7 +317,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.sm,
@@ -271,12 +324,10 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.textPrimary,
     marginBottom: Spacing.xs,
   },
   statLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
     textAlign: 'center',
   },
   section: {
@@ -285,30 +336,25 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginBottom: Spacing.md,
   },
   patientCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   patientAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.md,
   },
   patientInitials: {
-    color: Colors.background,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -318,12 +364,10 @@ const styles = StyleSheet.create({
   patientName: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginBottom: 2,
   },
   patientDetails: {
     fontSize: 14,
-    color: Colors.textSecondary,
     marginBottom: 4,
   },
   patientStatus: {
@@ -338,7 +382,6 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   patientActions: {
     alignItems: 'center',
@@ -353,24 +396,20 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginTop: Spacing.md,
     marginBottom: Spacing.xs,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
     textAlign: 'center',
     marginBottom: Spacing.lg,
   },
   inviteButton: {
-    backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
   },
   inviteButtonText: {
-    color: Colors.background,
     fontSize: 16,
     fontWeight: '600',
   },

@@ -1,23 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Send, Paperclip, AlertCircle, Clock, ArrowLeft, User, RefreshCw } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '@/constants/colors';
+import { Send, Paperclip, AlertCircle, Clock, ArrowLeft, User, RefreshCw, Search, X } from 'lucide-react-native';
+import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useTheme } from '@/contexts/ThemeContext';
 
 // Patient List Component for Doctors
 function PatientListView() {
   const { assignedPatients, messages, loadAssignedPatients, loadMessages, profile } = usePatientStore();
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const { colors } = useTheme();
 
-  // Set up real-time subscription for new patients and messages
   useEffect(() => {
     if (!profile) return;
 
-    // Subscribe to new doctor-patient relationships
     const patientSubscription = supabase
       .channel('doctor-patients-changes')
       .on('postgres_changes', {
@@ -26,12 +27,10 @@ function PatientListView() {
         table: 'doctor_patients',
         filter: `doctor_id=eq.${profile.id}`
       }, () => {
-        console.log('New patient linked!');
         loadAssignedPatients();
       })
       .subscribe();
 
-    // Subscribe to new messages
     const messageSubscription = supabase
       .channel('messages-changes')
       .on('postgres_changes', {
@@ -40,7 +39,6 @@ function PatientListView() {
         table: 'messages',
         filter: `recipient_id=eq.${profile.id}`
       }, () => {
-        console.log('New message received!');
         loadMessages();
       })
       .subscribe();
@@ -70,50 +68,58 @@ function PatientListView() {
     ).length;
   };
 
+  // Filter patients by search
+  const filteredPatients = useMemo(() => {
+    if (!searchQuery.trim()) return assignedPatients;
+    const query = searchQuery.toLowerCase();
+    return assignedPatients.filter(patient =>
+      patient.name?.toLowerCase().includes(query)
+    );
+  }, [assignedPatients, searchQuery]);
+
   const PatientChatItem = ({ patient }: { patient: any }) => {
     const lastMessage = getLastMessage(patient.id);
     const unreadCount = getUnreadCount(patient.id);
 
     return (
-      <TouchableOpacity 
-        style={styles.patientChatItem}
+      <TouchableOpacity
+        style={[styles.patientChatItem, { backgroundColor: colors.background, borderColor: colors.border }]}
         onPress={() => {
-          // Navigate to chat with this patient
           router.push(`/chat/${patient.id}`);
         }}
       >
-        <View style={styles.patientAvatar}>
-          <Text style={styles.patientInitials}>
+        <View style={[styles.patientAvatar, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.patientInitials, { color: colors.background }]}>
             {patient.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'PA'}
           </Text>
         </View>
-        
+
         <View style={styles.patientChatInfo}>
           <View style={styles.patientChatHeader}>
-            <Text style={styles.patientName}>{patient.name}</Text>
+            <Text style={[styles.patientName, { color: colors.textPrimary }]}>{patient.name}</Text>
             {lastMessage && (
-              <Text style={styles.messageTime}>
+              <Text style={[styles.messageTime, { color: colors.textSecondary }]}>
                 {new Date(lastMessage.created_at).toLocaleDateString()}
               </Text>
             )}
           </View>
-          
+
           <View style={styles.patientChatPreview}>
-            <Text style={styles.lastMessage} numberOfLines={1}>
+            <Text style={[styles.lastMessage, { color: colors.textSecondary }]} numberOfLines={1}>
               {lastMessage ? lastMessage.content : 'No messages yet'}
             </Text>
             {unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadText}>{unreadCount}</Text>
+              <View style={[styles.unreadBadge, { backgroundColor: colors.error }]}>
+                <Text style={[styles.unreadText, { color: colors.background }]}>{unreadCount}</Text>
               </View>
             )}
           </View>
-          
+
           <View style={styles.patientStatus}>
-            <Text style={styles.patientTrayInfo}>
+            <Text style={[styles.patientTrayInfo, { color: colors.textSecondary }]}>
               Tray {patient.patientData?.current_tray || 1} of {patient.patientData?.total_trays || 24}
             </Text>
-            <View style={[styles.statusDot, { backgroundColor: Colors.success }]} />
+            <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
           </View>
         </View>
       </TouchableOpacity>
@@ -121,36 +127,68 @@ function PatientListView() {
   };
 
   return (
-    <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.title}>Messages</Text>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Messages</Text>
+            <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {assignedPatients.length} patients
             </Text>
           </View>
           <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
             {refreshing ? (
-              <ActivityIndicator size="small" color={Colors.primary} />
+              <ActivityIndicator size="small" color={colors.primary} />
             ) : (
-              <RefreshCw size={24} color={Colors.primary} />
+              <RefreshCw size={24} color={colors.primary} />
             )}
           </TouchableOpacity>
         </View>
       </View>
 
+      {/* Search Bar */}
+      <View style={[styles.searchContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <Search size={20} color={colors.textSecondary} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.textPrimary }]}
+          placeholder="Search patients..."
+          placeholderTextColor={colors.textSecondary}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <X size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <View style={styles.patientsList}>
-        {assignedPatients.length === 0 ? (
+        {filteredPatients.length === 0 ? (
           <Card style={styles.emptyCard}>
-            <User size={48} color={Colors.textSecondary} />
-            <Text style={styles.emptyTitle}>No patients yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Invite patients to start messaging
-            </Text>
+            {searchQuery ? (
+              <>
+                <Search size={48} color={colors.textSecondary} />
+                <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No results found</Text>
+                <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                  No patients match "{searchQuery}"
+                </Text>
+              </>
+            ) : (
+              <>
+                <User size={48} color={colors.textSecondary} />
+                <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No patients yet</Text>
+                <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                  Invite patients to start messaging
+                </Text>
+              </>
+            )}
           </Card>
         ) : (
-          assignedPatients.map((patient) => (
+          filteredPatients.map((patient) => (
             <PatientChatItem key={patient.id} patient={patient} />
           ))
         )}
@@ -166,15 +204,14 @@ function DirectChatView() {
   const [sending, setSending] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
+  const { colors } = useTheme();
 
-  // Load messages between patient and doctor
   useEffect(() => {
     if (profile && assignedDoctor) {
       loadChatMessages();
     }
   }, [profile, assignedDoctor]);
 
-  // Set up real-time subscription for new messages
   useEffect(() => {
     if (!profile || !assignedDoctor) return;
 
@@ -186,11 +223,8 @@ function DirectChatView() {
         table: 'messages',
         filter: `recipient_id=eq.${profile.id}`
       }, async (payload) => {
-        console.log('New message received!');
         setChatMessages(prev => [...prev, payload.new]);
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
-
-        // Mark the new message as read since we're viewing the chat
         await markMessagesRead(assignedDoctor.id);
       })
       .subscribe();
@@ -212,8 +246,6 @@ function DirectChatView() {
     if (!error && data) {
       setChatMessages(data);
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: false }), 100);
-
-      // Mark messages from doctor as read
       await markMessagesRead(assignedDoctor.id);
     }
   };
@@ -238,7 +270,6 @@ function DirectChatView() {
         .single();
 
       if (error) {
-        console.error('Send message error:', error);
         setNewMessage(messageContent);
         return;
       }
@@ -248,7 +279,6 @@ function DirectChatView() {
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
       }
     } catch (error) {
-      console.error('Send message error:', error);
       setNewMessage(messageContent);
     } finally {
       setSending(false);
@@ -266,11 +296,23 @@ function DirectChatView() {
     const isOwnMessage = message.sender_id === profile?.id;
 
     return (
-      <View style={[styles.messageBubble, isOwnMessage ? styles.patientMessage : styles.doctorMessage]}>
-        <Text style={[styles.messageText, isOwnMessage ? styles.patientMessageText : styles.doctorMessageText]}>
+      <View style={[
+        styles.messageBubble,
+        isOwnMessage
+          ? [styles.patientMessage, { backgroundColor: colors.primary }]
+          : [styles.doctorMessage, { backgroundColor: colors.background, borderColor: colors.border }]
+      ]}>
+        <Text style={[
+          styles.messageText,
+          { color: isOwnMessage ? colors.background : colors.textPrimary }
+        ]}>
           {message.content}
         </Text>
-        <Text style={[styles.messageTime, isOwnMessage ? styles.patientMessageTime : styles.doctorMessageTime]}>
+        <Text style={[
+          styles.msgTime,
+          { color: isOwnMessage ? 'rgba(255, 255, 255, 0.7)' : colors.textSecondary,
+            textAlign: isOwnMessage ? 'right' : 'left' }
+        ]}>
           {new Date(message.created_at).toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit'
@@ -280,20 +322,19 @@ function DirectChatView() {
     );
   };
 
-  // Show message if no doctor is assigned
   if (!assignedDoctor) {
     return (
-      <View style={styles.noDoctorContainer}>
-        <User size={64} color={Colors.textSecondary} />
-        <Text style={styles.noDoctorTitle}>No Doctor Linked</Text>
-        <Text style={styles.noDoctorSubtitle}>
+      <View style={[styles.noDoctorContainer, { backgroundColor: colors.surface }]}>
+        <User size={64} color={colors.textSecondary} />
+        <Text style={[styles.noDoctorTitle, { color: colors.textPrimary }]}>No Doctor Linked</Text>
+        <Text style={[styles.noDoctorSubtitle, { color: colors.textSecondary }]}>
           Enter your doctor's code in Profile settings to start messaging
         </Text>
         <TouchableOpacity
-          style={styles.goToProfileButton}
+          style={[styles.goToProfileButton, { backgroundColor: colors.primary }]}
           onPress={() => router.push('/(tabs)/profile')}
         >
-          <Text style={styles.goToProfileButtonText}>Go to Profile</Text>
+          <Text style={[styles.goToProfileButtonText, { color: colors.background }]}>Go to Profile</Text>
         </TouchableOpacity>
       </View>
     );
@@ -301,29 +342,35 @@ function DirectChatView() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.chatContainer}
+      style={[styles.chatContainer, { backgroundColor: colors.surface }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       {/* Chat Header */}
-      <View style={styles.chatHeader}>
+      <View style={[styles.chatHeader, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.chatHeaderInfo}>
-          <Text style={styles.chatTitle}>
+          <Text style={[styles.chatTitle, { color: colors.textPrimary }]}>
             {assignedDoctor ? assignedDoctor.name : 'Your Orthodontist'}
           </Text>
           <View style={styles.statusIndicator}>
-            <View style={styles.onlineIndicator} />
-            <Text style={styles.statusText}>Online</Text>
+            <View style={[styles.onlineIndicator, { backgroundColor: colors.success }]} />
+            <Text style={[styles.onlineText, { color: colors.success }]}>Online</Text>
           </View>
         </View>
       </View>
 
       {/* Context Card */}
       <Card style={styles.contextCard}>
-        <Text style={styles.contextTitle}>Current Status</Text>
+        <Text style={[styles.contextTitle, { color: colors.textPrimary }]}>Current Status</Text>
         <View style={styles.contextInfo}>
-          <Text style={styles.contextItem}>Tray {patient?.current_tray} of {patient?.total_trays}</Text>
-          <Text style={styles.contextItem}>22h daily goal</Text>
-          <Text style={styles.contextItem}>Last fit check: Good</Text>
+          <Text style={[styles.contextItem, { color: colors.textSecondary, backgroundColor: colors.surface }]}>
+            Tray {patient?.current_tray} of {patient?.total_trays}
+          </Text>
+          <Text style={[styles.contextItem, { color: colors.textSecondary, backgroundColor: colors.surface }]}>
+            22h daily goal
+          </Text>
+          <Text style={[styles.contextItem, { color: colors.textSecondary, backgroundColor: colors.surface }]}>
+            Last fit check: Good
+          </Text>
         </View>
       </Card>
 
@@ -336,8 +383,8 @@ function DirectChatView() {
         <View style={styles.messagesList}>
           {chatMessages.length === 0 ? (
             <View style={styles.emptyMessages}>
-              <Text style={styles.emptyMessagesText}>No messages yet</Text>
-              <Text style={styles.emptyMessagesSubtext}>Send a message to your doctor</Text>
+              <Text style={[styles.emptyMessagesText, { color: colors.textPrimary }]}>No messages yet</Text>
+              <Text style={[styles.emptyMessagesSubtext, { color: colors.textSecondary }]}>Send a message to your doctor</Text>
             </View>
           ) : (
             chatMessages.map((message) => (
@@ -348,20 +395,20 @@ function DirectChatView() {
       </ScrollView>
 
       {/* Quick Templates */}
-      <View style={styles.templatesContainer}>
-        <Text style={styles.templatesTitle}>Quick Messages</Text>
+      <View style={[styles.templatesContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+        <Text style={[styles.templatesTitle, { color: colors.textSecondary }]}>Quick Messages</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templatesScroll}>
           {quickTemplates.map((template) => {
             const Icon = template.icon;
-            
+
             return (
               <TouchableOpacity
                 key={template.id}
-                style={styles.templateButton}
+                style={[styles.templateButton, { borderColor: colors.border, backgroundColor: colors.background }]}
                 onPress={() => setNewMessage(template.text)}
               >
-                <Icon size={16} color={Colors.textSecondary} />
-                <Text style={styles.templateText}>
+                <Icon size={16} color={colors.textSecondary} />
+                <Text style={[styles.templateText, { color: colors.textSecondary }]}>
                   {template.text.split(' ').slice(0, 3).join(' ')}...
                 </Text>
               </TouchableOpacity>
@@ -371,27 +418,27 @@ function DirectChatView() {
       </View>
 
       {/* Message Input */}
-      <View style={styles.inputContainer}>
-        <View style={styles.inputWrapper}>
+      <View style={[styles.inputContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+        <View style={[styles.inputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, { color: colors.textPrimary }]}
             value={newMessage}
             onChangeText={setNewMessage}
             placeholder="Type your message..."
-            placeholderTextColor={Colors.textSecondary}
+            placeholderTextColor={colors.textSecondary}
             multiline
             maxLength={500}
           />
         </View>
         <TouchableOpacity
-          style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}
+          style={[styles.sendButton, { backgroundColor: (!newMessage.trim() || sending) ? colors.border : colors.primary }]}
           onPress={handleSendMessage}
           disabled={!newMessage.trim() || sending}
         >
           {sending ? (
-            <ActivityIndicator size="small" color={Colors.background} />
+            <ActivityIndicator size="small" color={colors.background} />
           ) : (
-            <Send size={20} color={Colors.background} />
+            <Send size={20} color={colors.background} />
           )}
         </TouchableOpacity>
       </View>
@@ -402,9 +449,10 @@ function DirectChatView() {
 // Main Messages Screen Component
 export default function MessagesScreen() {
   const { userRole } = usePatientStore();
+  const { colors } = useTheme();
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
       {userRole === 'doctor' ? <PatientListView /> : <DirectChatView />}
     </SafeAreaView>
   );
@@ -413,7 +461,6 @@ export default function MessagesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.surface,
   },
   scrollView: {
     flex: 1,
@@ -433,12 +480,24 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
   },
   subtitle: {
     fontSize: 16,
-    color: Colors.textSecondary,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: Spacing.xs,
   },
   emptyMessages: {
     alignItems: 'center',
@@ -447,12 +506,10 @@ const styles = StyleSheet.create({
   emptyMessagesText: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginBottom: Spacing.xs,
   },
   emptyMessagesSubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
   },
   patientsList: {
     marginBottom: Spacing.xl,
@@ -460,24 +517,20 @@ const styles = StyleSheet.create({
   patientChatItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   patientAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.md,
   },
   patientInitials: {
-    color: Colors.background,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -493,11 +546,9 @@ const styles = StyleSheet.create({
   patientName: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.textPrimary,
   },
   messageTime: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   patientChatPreview: {
     flexDirection: 'row',
@@ -508,10 +559,8 @@ const styles = StyleSheet.create({
   lastMessage: {
     flex: 1,
     fontSize: 14,
-    color: Colors.textSecondary,
   },
   unreadBadge: {
-    backgroundColor: Colors.error,
     borderRadius: 10,
     minWidth: 20,
     height: 20,
@@ -520,7 +569,6 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.sm,
   },
   unreadText: {
-    color: Colors.background,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -531,7 +579,6 @@ const styles = StyleSheet.create({
   },
   patientTrayInfo: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   statusDot: {
     width: 8,
@@ -545,13 +592,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginTop: Spacing.md,
     marginBottom: Spacing.xs,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
     textAlign: 'center',
   },
   // Direct chat styles
@@ -565,8 +610,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.background,
   },
   chatHeaderInfo: {
     flex: 1,
@@ -574,7 +617,6 @@ const styles = StyleSheet.create({
   chatTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.textPrimary,
     marginBottom: 2,
   },
   statusIndicator: {
@@ -586,11 +628,9 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: Colors.success,
   },
-  statusText: {
+  onlineText: {
     fontSize: 12,
-    color: Colors.success,
     fontWeight: '600',
   },
   messagesContainer: {
@@ -599,12 +639,10 @@ const styles = StyleSheet.create({
   },
   contextCard: {
     marginVertical: Spacing.md,
-    backgroundColor: Colors.surface,
   },
   contextTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginBottom: Spacing.sm,
   },
   contextInfo: {
@@ -613,8 +651,6 @@ const styles = StyleSheet.create({
   },
   contextItem: {
     fontSize: 12,
-    color: Colors.textSecondary,
-    backgroundColor: Colors.background,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.sm,
@@ -630,45 +666,29 @@ const styles = StyleSheet.create({
   },
   patientMessage: {
     alignSelf: 'flex-end',
-    backgroundColor: Colors.primary,
     borderBottomRightRadius: 4,
   },
   doctorMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: Colors.background,
     borderBottomLeftRadius: 4,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   messageText: {
     fontSize: 16,
     lineHeight: 22,
     marginBottom: Spacing.xs,
   },
-  patientMessageText: {
-    color: Colors.background,
-  },
-  doctorMessageText: {
-    color: Colors.textPrimary,
-  },
-  patientMessageTime: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'right',
-  },
-  doctorMessageTime: {
-    color: Colors.textSecondary,
+  msgTime: {
+    fontSize: 12,
   },
   templatesContainer: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    backgroundColor: Colors.background,
   },
   templatesTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: Colors.textSecondary,
     marginBottom: Spacing.sm,
     textTransform: 'uppercase',
   },
@@ -683,39 +703,31 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.sm,
     borderWidth: 1,
-    borderColor: Colors.border,
     marginRight: Spacing.sm,
-    backgroundColor: Colors.background,
   },
   templateText: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    backgroundColor: Colors.background,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
     gap: Spacing.sm,
   },
   inputWrapper: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.border,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
   },
   textInput: {
     flex: 1,
     fontSize: 16,
-    color: Colors.textPrimary,
     maxHeight: 100,
     minHeight: 40,
     paddingTop: 10,
@@ -726,12 +738,8 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: Colors.border,
   },
   noDoctorContainer: {
     flex: 1,
@@ -742,25 +750,21 @@ const styles = StyleSheet.create({
   noDoctorTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.textPrimary,
     marginTop: Spacing.lg,
     marginBottom: Spacing.sm,
   },
   noDoctorSubtitle: {
     fontSize: 16,
-    color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: Spacing.lg,
   },
   goToProfileButton: {
-    backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
   },
   goToProfileButtonText: {
-    color: Colors.background,
     fontSize: 16,
     fontWeight: '600',
   },

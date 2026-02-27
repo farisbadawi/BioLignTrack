@@ -6,9 +6,11 @@ import { TrendingUp, Calendar, Clock, Award } from 'lucide-react-native';
 import { Colors, Spacing } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function ProgressScreen() {
   const { patient, getWeeklyProgress, dailyLogs, trayChanges } = usePatientStore();
+  const { colors } = useTheme();
   const weeklyData = getWeeklyProgress();
 
   if (!patient) return null;
@@ -18,17 +20,17 @@ export default function ProgressScreen() {
     const today = new Date().toISOString().split('T')[0];
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    
+
     // Weekly average
     const weeklyLogs = dailyLogs.filter(log => log.date >= oneWeekAgo && log.date <= today);
     const weeklyTotal = weeklyLogs.reduce((sum, log) => sum + log.wear_minutes, 0);
     const weeklyAverage = weeklyLogs.length > 0 ? weeklyTotal / weeklyLogs.length / 60 : 0;
-    
+
     // Current streak (consecutive days meeting target)
     let currentStreak = 0;
     const targetMinutes = patient.target_hours_per_day * 60;
     const sortedLogs = [...dailyLogs].sort((a, b) => b.date.localeCompare(a.date));
-    
+
     for (const log of sortedLogs) {
       if (log.wear_minutes >= targetMinutes) {
         currentStreak++;
@@ -36,38 +38,38 @@ export default function ProgressScreen() {
         break;
       }
     }
-    
+
     // On-time tray changes (changes made within recommended timeframe)
-    const sortedTrayChanges = [...trayChanges].sort((a, b) => 
+    const sortedTrayChanges = [...trayChanges].sort((a, b) =>
       new Date(a.date_changed).getTime() - new Date(b.date_changed).getTime()
     );
-    
+
     let onTimeChanges = 0;
     for (let i = 1; i < sortedTrayChanges.length; i++) {
       const prevChange = new Date(sortedTrayChanges[i - 1].date_changed);
       const currentChange = new Date(sortedTrayChanges[i].date_changed);
       const daysBetween = (currentChange.getTime() - prevChange.getTime()) / (1000 * 60 * 60 * 24);
-      
+
       // Assuming 14 days is the recommended time between changes
       if (daysBetween >= 12 && daysBetween <= 16) {
         onTimeChanges++;
       }
     }
-    
+
     // Monthly statistics
     const monthlyLogs = dailyLogs.filter(log => log.date >= oneMonthAgo && log.date <= today);
     const monthlyTotal = monthlyLogs.reduce((sum, log) => sum + log.wear_minutes, 0);
     const monthlyAverage = monthlyLogs.length > 0 ? monthlyTotal / monthlyLogs.length / 60 : 0;
-    
+
     // Compliance rate (percentage of days meeting target)
     const daysMetTarget = monthlyLogs.filter(log => log.wear_minutes >= targetMinutes).length;
     const complianceRate = monthlyLogs.length > 0 ? (daysMetTarget / monthlyLogs.length) * 100 : 0;
-    
+
     // Trays completed this month
-    const monthlyTrayChanges = trayChanges.filter(change => 
+    const monthlyTrayChanges = trayChanges.filter(change =>
       change.date_changed >= oneMonthAgo && change.date_changed <= today
     );
-    
+
     return {
       weeklyAverage,
       currentStreak,
@@ -90,14 +92,14 @@ export default function ProgressScreen() {
   const generateInsights = () => {
     const insights = [];
     const targetHours = patient.target_hours_per_day;
-    
+
     // Consistency insight
     const weeklyLogs = dailyLogs.filter(log => {
       const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       return log.date >= oneWeekAgo;
     });
     const daysMetTarget = weeklyLogs.filter(log => log.wear_minutes >= targetHours * 60).length;
-    
+
     if (daysMetTarget >= 5) {
       insights.push({
         type: 'success',
@@ -117,7 +119,7 @@ export default function ProgressScreen() {
         text: `You've only met your daily goal ${daysMetTarget} out of ${weeklyLogs.length} days this week. Focus on consistency.`
       });
     }
-    
+
     // Weekend performance
     const weekendLogs = weeklyLogs.filter(log => {
       const dayOfWeek = new Date(log.date).getDay();
@@ -127,12 +129,12 @@ export default function ProgressScreen() {
       const dayOfWeek = new Date(log.date).getDay();
       return dayOfWeek >= 1 && dayOfWeek <= 5; // Monday to Friday
     });
-    
-    const weekendAvg = weekendLogs.length > 0 ? 
+
+    const weekendAvg = weekendLogs.length > 0 ?
       weekendLogs.reduce((sum, log) => sum + log.wear_minutes, 0) / weekendLogs.length / 60 : 0;
-    const weekdayAvg = weekdayLogs.length > 0 ? 
+    const weekdayAvg = weekdayLogs.length > 0 ?
       weekdayLogs.reduce((sum, log) => sum + log.wear_minutes, 0) / weekdayLogs.length / 60 : 0;
-    
+
     if (weekendAvg < weekdayAvg - 2) {
       insights.push({
         type: 'warning',
@@ -140,7 +142,7 @@ export default function ProgressScreen() {
         text: 'Your wear time tends to drop on weekends. Set reminders to stay on track.'
       });
     }
-    
+
     // Treatment progress
     const progressPercentage = Math.round((patient.current_tray / patient.total_trays) * 100);
     insights.push({
@@ -148,7 +150,7 @@ export default function ProgressScreen() {
       title: 'Treatment progress',
       text: `You're ${progressPercentage}% through your treatment plan. Keep it up!`
     });
-    
+
     return insights;
   };
 
@@ -157,33 +159,36 @@ export default function ProgressScreen() {
   const BarChart = () => (
     <View style={styles.chartContainer}>
       <View style={styles.chartHeader}>
-        <Text style={styles.chartTitle}>Daily Wear Time</Text>
-        <Text style={styles.chartSubtitle}>Last 7 days</Text>
+        <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>Daily Wear Time</Text>
+        <Text style={[styles.chartSubtitle, { color: colors.textSecondary }]}>Last 7 days</Text>
       </View>
-      
+
       <View style={styles.chart}>
         <View style={styles.yAxis}>
-          <Text style={styles.yAxisLabel}>{Math.ceil(maxHours)}h</Text>
-          <Text style={styles.yAxisLabel}>{Math.ceil(maxHours * 0.75)}h</Text>
-          <Text style={styles.yAxisLabel}>{Math.ceil(maxHours * 0.5)}h</Text>
-          <Text style={styles.yAxisLabel}>0h</Text>
+          <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours)}h</Text>
+          <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours * 0.75)}h</Text>
+          <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours * 0.5)}h</Text>
+          <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>0h</Text>
         </View>
-        
+
         <View style={styles.chartArea}>
           {/* Target line */}
-          <View 
+          <View
             style={[
-              styles.targetLine, 
-              { bottom: `${(patient.target_hours_per_day / maxHours) * 100}%` }
-            ]} 
+              styles.targetLine,
+              {
+                bottom: `${(patient.target_hours_per_day / maxHours) * 100}%`,
+                backgroundColor: colors.primary,
+              }
+            ]}
           />
-          
+
           <View style={styles.bars}>
             {weeklyData.map((data, index) => {
               const barHeight = (data.hours / maxHours) * 100;
               const isToday = index === weeklyData.length - 1;
               const meetsTarget = data.hours >= patient.target_hours_per_day;
-              
+
               return (
                 <View key={data.date} style={styles.barContainer}>
                   <View style={styles.barWrapper}>
@@ -192,18 +197,18 @@ export default function ProgressScreen() {
                         styles.bar,
                         {
                           height: `${barHeight}%`,
-                          backgroundColor: meetsTarget ? Colors.success : 
-                                         data.hours >= patient.target_hours_per_day * 0.8 ? Colors.warning : 
-                                         Colors.error,
+                          backgroundColor: meetsTarget ? colors.success :
+                                         data.hours >= patient.target_hours_per_day * 0.8 ? colors.warning :
+                                         colors.error,
                         },
-                        isToday && styles.todayBar,
+                        isToday && [styles.todayBar, { borderColor: colors.primary }],
                       ]}
                     />
                   </View>
-                  <Text style={[styles.barLabel, isToday && styles.todayLabel]}>
+                  <Text style={[styles.barLabel, { color: colors.textSecondary }, isToday && { color: colors.primary, fontWeight: '600' }]}>
                     {formatDate(data.date)}
                   </Text>
-                  <Text style={styles.barValue}>
+                  <Text style={[styles.barValue, { color: colors.textSecondary }]}>
                     {data.hours.toFixed(1)}h
                   </Text>
                 </View>
@@ -212,57 +217,58 @@ export default function ProgressScreen() {
           </View>
         </View>
       </View>
-      
+
       <View style={styles.chartLegend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendColor, { backgroundColor: Colors.success }]} />
-          <Text style={styles.legendText}>Target met</Text>
+          <View style={[styles.legendColor, { backgroundColor: colors.success }]} />
+          <Text style={[styles.legendText, { color: colors.textSecondary }]}>Target met</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendColor, { backgroundColor: Colors.warning }]} />
-          <Text style={styles.legendText}>Close</Text>
+          <View style={[styles.legendColor, { backgroundColor: colors.warning }]} />
+          <Text style={[styles.legendText, { color: colors.textSecondary }]}>Close</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendColor, { backgroundColor: Colors.error }]} />
-          <Text style={styles.legendText}>Below target</Text>
+          <View style={[styles.legendColor, { backgroundColor: colors.error }]} />
+          <Text style={[styles.legendText, { color: colors.textSecondary }]}>Below target</Text>
         </View>
       </View>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Progress</Text>
-          <Text style={styles.subtitle}>Track your orthodontic journey</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Progress</Text>
+          <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Track your orthodontic journey</Text>
         </View>
 
         {/* Stats Overview */}
         <View style={styles.statsGrid}>
           <Card style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <TrendingUp size={24} color={Colors.primary} />
+            <View style={[styles.statIcon, { backgroundColor: colors.surface }]}>
+              <TrendingUp size={24} color={colors.primary} />
             </View>
-            <Text style={styles.statValue}>{stats.weeklyAverage.toFixed(1)}h</Text>
-            <Text style={styles.statLabel}>7-day average</Text>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.weeklyAverage.toFixed(1)}h</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>7-day average</Text>
           </Card>
 
           <Card style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Award size={24} color={Colors.success} />
+            <View style={[styles.statIcon, { backgroundColor: colors.surface }]}>
+              <Award size={24} color={colors.success} />
             </View>
-            <Text style={styles.statValue}>{stats.currentStreak}</Text>
-            <Text style={styles.statLabel}>Day streak</Text>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.currentStreak}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Day streak</Text>
           </Card>
 
           <Card style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Calendar size={24} color={Colors.warning} />
+            <View style={[styles.statIcon, { backgroundColor: colors.surface }]}>
+              <Calendar size={24} color={colors.warning} />
             </View>
-            <Text style={styles.statValue}>{stats.onTimeChanges}</Text>
-            <Text style={styles.statLabel}>On-time changes</Text>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.onTimeChanges}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>On-time changes</Text>
           </Card>
         </View>
 
@@ -274,25 +280,25 @@ export default function ProgressScreen() {
         {/* Progress Insights */}
         <Card style={styles.insightsCard}>
           <View style={styles.insightsHeader}>
-            <Clock size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Insights & Tips</Text>
+            <Clock size={20} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Insights & Tips</Text>
           </View>
-          
+
           <View style={styles.insights}>
             {insights.map((insight, index) => (
               <View key={index} style={styles.insightItem}>
                 <View style={[
-                  styles.insightIndicator, 
-                  { 
-                    backgroundColor: insight.type === 'success' ? Colors.success :
-                                   insight.type === 'warning' ? Colors.warning :
-                                   insight.type === 'error' ? Colors.error :
-                                   Colors.primary
+                  styles.insightIndicator,
+                  {
+                    backgroundColor: insight.type === 'success' ? colors.success :
+                                   insight.type === 'warning' ? colors.warning :
+                                   insight.type === 'error' ? colors.error :
+                                   colors.primary
                   }
                 ]} />
                 <View style={styles.insightContent}>
-                  <Text style={styles.insightTitle}>{insight.title}</Text>
-                  <Text style={styles.insightText}>{insight.text}</Text>
+                  <Text style={[styles.insightTitle, { color: colors.textPrimary }]}>{insight.title}</Text>
+                  <Text style={[styles.insightText, { color: colors.textSecondary }]}>{insight.text}</Text>
                 </View>
               </View>
             ))}
@@ -301,32 +307,32 @@ export default function ProgressScreen() {
 
         {/* Monthly Summary */}
         <Card style={styles.summaryCard}>
-          <Text style={styles.sectionTitle}>This Month</Text>
-          
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>This Month</Text>
+
           <View style={styles.summaryStats}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{Math.round(stats.complianceRate)}%</Text>
-              <Text style={styles.summaryLabel}>Compliance Rate</Text>
+              <Text style={[styles.summaryValue, { color: colors.primary }]}>{Math.round(stats.complianceRate)}%</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Compliance Rate</Text>
             </View>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{stats.monthlyAverage.toFixed(1)}h</Text>
-              <Text style={styles.summaryLabel}>Daily Average</Text>
+              <Text style={[styles.summaryValue, { color: colors.primary }]}>{stats.monthlyAverage.toFixed(1)}h</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Daily Average</Text>
             </View>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{stats.traysCompletedThisMonth}</Text>
-              <Text style={styles.summaryLabel}>Trays Completed</Text>
+              <Text style={[styles.summaryValue, { color: colors.primary }]}>{stats.traysCompletedThisMonth}</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Trays Completed</Text>
             </View>
           </View>
-          
+
           <View style={styles.summaryProgress}>
-            <Text style={styles.summaryProgressLabel}>Monthly Goal Progress</Text>
-            <View style={styles.summaryProgressBar}>
+            <Text style={[styles.summaryProgressLabel, { color: colors.textPrimary }]}>Monthly Goal Progress</Text>
+            <View style={[styles.summaryProgressBar, { backgroundColor: colors.border }]}>
               <View style={[
-                styles.summaryProgressFill, 
-                { width: `${Math.min(stats.complianceRate, 100)}%` }
+                styles.summaryProgressFill,
+                { width: `${Math.min(stats.complianceRate, 100)}%`, backgroundColor: colors.primary }
               ]} />
             </View>
-            <Text style={styles.summaryProgressText}>
+            <Text style={[styles.summaryProgressText, { color: colors.textSecondary }]}>
               {Math.round(stats.complianceRate)}% of target hours
             </Text>
           </View>

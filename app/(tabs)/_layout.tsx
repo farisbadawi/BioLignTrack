@@ -1,17 +1,18 @@
-// app/(tabs)/_layout.tsx - COMPLETE REPLACEMENT
+// app/(tabs)/_layout.tsx
 import { Tabs } from "expo-router";
 import { Home, Package, Calendar, MessageCircle, User, LineChart, Users, BarChart3, UserPlus } from "lucide-react-native";
 import React from "react";
-import { Colors } from "@/constants/colors";
 import { usePatientStore } from "@/stores/patient-store";
 import { View, Text, ActivityIndicator } from "react-native";
+import { useTheme } from "@/contexts/ThemeContext";
 
 // Loading component for tab layout
 function TabLoadingScreen() {
+  const { colors } = useTheme();
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.surface }}>
-      <ActivityIndicator size="large" color={Colors.primary} />
-      <Text style={{ marginTop: 16, fontSize: 16, color: Colors.textSecondary }}>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface }}>
+      <ActivityIndicator size="large" color={colors.primary} />
+      <Text style={{ marginTop: 16, fontSize: 16, color: colors.textSecondary }}>
         Loading...
       </Text>
     </View>
@@ -21,16 +22,17 @@ function TabLoadingScreen() {
 // Patient Tab Layout
 function PatientTabLayout() {
   const { unreadMessages } = usePatientStore();
-  
+  const { colors } = useTheme();
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textSecondary,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: Colors.background,
-          borderTopColor: Colors.border,
+          backgroundColor: colors.background,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
           paddingTop: 8,
           paddingBottom: 28,
@@ -90,13 +92,13 @@ function PatientTabLayout() {
       <Tabs.Screen
         name="patients"
         options={{
-          href: null, // This hides the tab
+          href: null,
         }}
       />
       <Tabs.Screen
         name="invite"
         options={{
-          href: null, // This hides the tab
+          href: null,
         }}
       />
     </Tabs>
@@ -106,16 +108,17 @@ function PatientTabLayout() {
 // Doctor Tab Layout
 function DoctorTabLayout() {
   const { unreadMessages } = usePatientStore();
-  
+  const { colors } = useTheme();
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textSecondary,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: Colors.background,
-          borderTopColor: Colors.border,
+          backgroundColor: colors.background,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
           paddingTop: 8,
           paddingBottom: 28,
@@ -175,13 +178,13 @@ function DoctorTabLayout() {
       <Tabs.Screen
         name="tray"
         options={{
-          href: null, // This hides the tab
+          href: null,
         }}
       />
       <Tabs.Screen
         name="progress"
         options={{
-          href: null, // This hides the tab
+          href: null,
         }}
       />
     </Tabs>
@@ -192,16 +195,13 @@ function DoctorTabLayout() {
 export default function TabLayout() {
   const { userRole, loading, profile } = usePatientStore();
 
-  // Show loading while determining role
   if (loading || !profile) {
     return <TabLoadingScreen />;
   }
 
-  // Return appropriate layout based on user role
   if (userRole === 'doctor') {
     return <DoctorTabLayout />;
   }
-  
-  // Default to patient layout
+
   return <PatientTabLayout />;
 }

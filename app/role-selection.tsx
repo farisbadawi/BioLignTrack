@@ -1,20 +1,21 @@
-// app/role-selection.tsx - FINAL WORKING VERSION
+// app/role-selection.tsx
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Image, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Users, Stethoscope } from 'lucide-react-native';
+import { Users, Stethoscope, ArrowRight, Check } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
-import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
-import { Link } from 'expo-router';
+import { router } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function RoleSelectionScreen() {
   const [selectedRole, setSelectedRole] = useState<'patient' | 'doctor' | null>(null);
   const [invitationCode, setInvitationCode] = useState('');
+  const { colors } = useTheme();
 
-  const getAuthUrl = () => {
-    if (!selectedRole) return '';
-    
+  const getAuthUrl = (): `/auth?${string}` => {
+    if (!selectedRole) return '/auth?' as `/auth?${string}`;
+
     if (selectedRole === 'patient') {
       const code = invitationCode.trim();
       return code ? `/auth?role=patient&invitationCode=${code}` : '/auth?role=patient';
@@ -23,142 +24,162 @@ export default function RoleSelectionScreen() {
     }
   };
 
+  const isSelected = (role: 'patient' | 'doctor') => selectedRole === role;
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right', 'bottom']}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.logo}>🦷</Text>
-          <Text style={styles.title}>BioLign Progress</Text>
-          <Text style={styles.subtitle}>
-            Choose your role to get started with orthodontic treatment tracking
+          <Image
+            source={require('@/assets/images/biolign-logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+          <Text style={[styles.headline, { color: colors.textPrimary }]}>
+            Welcome to BioLign
+          </Text>
+          <Text style={[styles.subheadline, { color: colors.textSecondary }]}>
+            Choose how you'd like to get started
           </Text>
         </View>
 
+        {/* Role Cards */}
         <View style={styles.roleSelection}>
-          <Text style={styles.sectionTitle}>I am a...</Text>
-          
+          {/* Patient Card */}
           <TouchableOpacity
+            activeOpacity={0.7}
             style={[
               styles.roleCard,
-              selectedRole === 'patient' && styles.selectedRoleCard
+              { backgroundColor: colors.background, borderColor: colors.border },
+              isSelected('patient') && { borderColor: colors.primary, borderWidth: 2 },
             ]}
             onPress={() => setSelectedRole('patient')}
           >
             <View style={[
-              styles.roleIcon,
-              selectedRole === 'patient' && styles.selectedRoleIcon
+              styles.roleIconCircle,
+              { backgroundColor: isSelected('patient') ? colors.primary : colors.surface },
             ]}>
-              <Users size={32} color={selectedRole === 'patient' ? Colors.background : Colors.primary} />
+              <Users size={24} color={isSelected('patient') ? '#ffffff' : colors.primary} />
             </View>
             <View style={styles.roleInfo}>
-              <Text style={[
-                styles.roleTitle,
-                selectedRole === 'patient' && styles.selectedRoleTitle
-              ]}>
-                Patient
+              <Text style={[styles.roleTitle, { color: colors.textPrimary }]}>
+                I'm a Patient
               </Text>
-              <Text style={[
-                styles.roleDescription,
-                selectedRole === 'patient' && styles.selectedRoleDescription
-              ]}>
-                I'm receiving orthodontic treatment and want to track my progress
+              <Text style={[styles.roleDescription, { color: colors.textSecondary }]}>
+                Track your orthodontic treatment progress
               </Text>
             </View>
-            {selectedRole === 'patient' && (
-              <View style={styles.checkmark}>
-                <Text style={styles.checkmarkText}>✓</Text>
-              </View>
-            )}
+            <View style={[
+              styles.radioOuter,
+              { borderColor: isSelected('patient') ? colors.primary : colors.border },
+            ]}>
+              {isSelected('patient') && (
+                <View style={[styles.radioInner, { backgroundColor: colors.primary }]}>
+                  <Check size={12} color="#ffffff" strokeWidth={3} />
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
 
+          {/* Doctor Card */}
           <TouchableOpacity
+            activeOpacity={0.7}
             style={[
               styles.roleCard,
-              selectedRole === 'doctor' && styles.selectedRoleCard
+              { backgroundColor: colors.background, borderColor: colors.border },
+              isSelected('doctor') && { borderColor: colors.primary, borderWidth: 2 },
             ]}
             onPress={() => setSelectedRole('doctor')}
           >
             <View style={[
-              styles.roleIcon,
-              selectedRole === 'doctor' && styles.selectedRoleIcon
+              styles.roleIconCircle,
+              { backgroundColor: isSelected('doctor') ? colors.primary : colors.surface },
             ]}>
-              <Stethoscope size={32} color={selectedRole === 'doctor' ? Colors.background : Colors.primary} />
+              <Stethoscope size={24} color={isSelected('doctor') ? '#ffffff' : colors.primary} />
             </View>
             <View style={styles.roleInfo}>
-              <Text style={[
-                styles.roleTitle,
-                selectedRole === 'doctor' && styles.selectedRoleTitle
-              ]}>
-                Doctor
+              <Text style={[styles.roleTitle, { color: colors.textPrimary }]}>
+                I'm a Doctor
               </Text>
-              <Text style={[
-                styles.roleDescription,
-                selectedRole === 'doctor' && styles.selectedRoleDescription
-              ]}>
-                I'm an orthodontist managing patient treatments and progress
+              <Text style={[styles.roleDescription, { color: colors.textSecondary }]}>
+                Manage patients and track their treatments
               </Text>
             </View>
-            {selectedRole === 'doctor' && (
-              <View style={styles.checkmark}>
-                <Text style={styles.checkmarkText}>✓</Text>
-              </View>
-            )}
+            <View style={[
+              styles.radioOuter,
+              { borderColor: isSelected('doctor') ? colors.primary : colors.border },
+            ]}>
+              {isSelected('doctor') && (
+                <View style={[styles.radioInner, { backgroundColor: colors.primary }]}>
+                  <Check size={12} color="#ffffff" strokeWidth={3} />
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
         </View>
 
         {/* Invitation Code for Patients */}
         {selectedRole === 'patient' && (
-          <Card style={styles.invitationCard}>
-            <Text style={styles.invitationTitle}>Invitation Code (Optional)</Text>
-            <Text style={styles.invitationSubtitle}>
-              Enter the invitation code provided by your orthodontist
+          <View style={[styles.optionalSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+            <Text style={[styles.optionalTitle, { color: colors.textPrimary }]}>
+              Have an invitation code?
+            </Text>
+            <Text style={[styles.optionalSubtitle, { color: colors.textSecondary }]}>
+              Enter the code from your orthodontist, or skip for now
             </Text>
             <TextInput
-              style={styles.invitationInput}
-              placeholder="Enter invitation code"
+              style={[styles.codeInput, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }]}
+              placeholder="e.g. ABC123"
+              placeholderTextColor={colors.textSecondary}
               value={invitationCode}
               onChangeText={(text) => setInvitationCode(text.toUpperCase())}
               maxLength={8}
               autoCapitalize="characters"
             />
-            <Text style={styles.invitationNote}>
-              You can skip this for now and add it later
-            </Text>
-          </Card>
+          </View>
         )}
 
         {/* Doctor Info */}
         {selectedRole === 'doctor' && (
-          <Card style={styles.doctorCard}>
-            <Text style={styles.doctorTitle}>Doctor Registration</Text>
-            <Text style={styles.doctorSubtitle}>
-              Create your doctor account to start managing patient treatments and send invitations.
+          <View style={[styles.optionalSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+            <Text style={[styles.optionalTitle, { color: colors.textPrimary }]}>
+              Doctor Registration
             </Text>
-          </Card>
+            <Text style={[styles.optionalSubtitle, { color: colors.textSecondary }]}>
+              Create your account to manage patient treatments and send invitations.
+            </Text>
+          </View>
         )}
+      </ScrollView>
 
-        {/* Continue Button using Link */}
-        <View style={styles.actions}>
-          {selectedRole ? (
-            <Link href={getAuthUrl()} asChild>
-              <TouchableOpacity style={styles.continueButton}>
-                <Text style={styles.continueButtonText}>Continue</Text>
-              </TouchableOpacity>
-            </Link>
-          ) : (
-            <TouchableOpacity style={[styles.continueButton, styles.continueButtonDisabled]} disabled>
-              <Text style={[styles.continueButtonText, styles.continueButtonTextDisabled]}>
-                Select a role to continue
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            By continuing, you agree to our Terms of Service and Privacy Policy
-          </Text>
-        </View>
+      {/* Sticky bottom area */}
+      <View style={[styles.bottomArea, { backgroundColor: colors.surface }]}>
+        {selectedRole ? (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => router.push(getAuthUrl())}
+            style={[styles.ctaButton, { backgroundColor: colors.primary }]}
+          >
+            <Text style={[styles.ctaButtonText, { color: '#0f172a' }]}>
+              Continue as {selectedRole === 'doctor' ? 'Doctor' : 'Patient'}
+            </Text>
+            <ArrowRight size={18} color="#0f172a" />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.ctaButton, styles.ctaButtonDisabled, { backgroundColor: colors.border }]}>
+            <Text style={[styles.ctaButtonText, { opacity: 0.5 }]}>
+              Select a role to continue
+            </Text>
+          </View>
+        )}
+        <Text style={[styles.legalText, { color: colors.textSecondary }]}>
+          By continuing, you agree to our Terms of Service and Privacy Policy
+        </Text>
       </View>
     </SafeAreaView>
   );
@@ -167,186 +188,147 @@ export default function RoleSelectionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.surface,
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.xl,
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 16,
   },
+
+  // Header
   header: {
     alignItems: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: 32,
   },
-  logo: {
-    fontSize: 48,
-    marginBottom: Spacing.sm,
+  logoImage: {
+    width: 180,
+    height: 100,
+    marginBottom: 24,
   },
-  title: {
-    fontSize: 28,
+  headline: {
+    fontSize: 26,
     fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.3,
   },
-  subtitle: {
-    fontSize: 16,
-    color: Colors.textSecondary,
+  subheadline: {
+    fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
+    letterSpacing: 0.1,
   },
+
+  // Role cards
   roleSelection: {
-    marginBottom: Spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
+    gap: 12,
+    marginBottom: 20,
   },
   roleCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    backgroundColor: Colors.background,
-    marginBottom: Spacing.md,
-    position: 'relative',
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1.5,
   },
-  selectedRoleCard: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary,
-  },
-  roleIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.surface,
+  roleIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: Spacing.md,
-  },
-  selectedRoleIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginRight: 14,
   },
   roleInfo: {
     flex: 1,
   },
   roleTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  selectedRoleTitle: {
-    color: Colors.background,
+    marginBottom: 3,
   },
   roleDescription: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
-  selectedRoleDescription: {
-    color: Colors.background,
-    opacity: 0.9,
-  },
-  checkmark: {
-    position: 'absolute',
-    top: Spacing.sm,
-    right: Spacing.sm,
+  radioOuter: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: Colors.background,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  radioInner: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  checkmarkText: {
-    color: Colors.primary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  invitationCard: {
-    marginBottom: Spacing.lg,
-  },
-  invitationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  invitationSubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.md,
-  },
-  invitationInput: {
+
+  // Optional sections
+  optionalSection: {
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
+    padding: 18,
+    marginBottom: 16,
+  },
+  optionalTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  optionalSubtitle: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  codeInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     fontSize: 16,
-    backgroundColor: Colors.surface,
-    color: Colors.textPrimary,
     textAlign: 'center',
     fontWeight: '600',
-    letterSpacing: 2,
-    marginBottom: Spacing.sm,
+    letterSpacing: 3,
   },
-  invitationNote: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    fontStyle: 'italic',
+
+  // Bottom area
+  bottomArea: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  doctorCard: {
-    marginBottom: Spacing.lg,
-    backgroundColor: Colors.primary + '10',
-    borderColor: Colors.primary,
-  },
-  doctorTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  doctorSubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  actions: {
-    marginBottom: Spacing.xl,
-  },
-  continueButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
+  ctaButton: {
+    height: 54,
+    borderRadius: 14,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 52,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
   },
-  continueButtonDisabled: {
-    backgroundColor: Colors.border,
-    opacity: 0.5,
+  ctaButtonDisabled: {
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  continueButtonText: {
-    color: Colors.background,
-    fontSize: 16,
+  ctaButtonText: {
+    color: '#ffffff',
+    fontSize: 17,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
-  continueButtonTextDisabled: {
-    color: Colors.textSecondary,
-  },
-  footer: {
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
+  legalText: {
+    fontSize: 11,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 16,
+    marginTop: 12,
   },
 });

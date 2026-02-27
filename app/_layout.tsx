@@ -5,7 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
-import { View, Text, ActivityIndicator } from "react-native";
+import { View, Text, ActivityIndicator, Image } from "react-native";
 import { usePatientStore } from "@/stores/patient-store";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "expo-router";
@@ -105,16 +105,14 @@ function RootLayoutNav() {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: colors.surface
+        backgroundColor: colors.surface,
       }}>
+        <Image
+          source={require('@/assets/images/biolign-logo-app.png')}
+          style={{ width: 280, height: 220, marginBottom: 32 }}
+          resizeMode="contain"
+        />
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{
-          marginTop: 16,
-          fontSize: 16,
-          color: colors.textSecondary
-        }}>
-          Loading...
-        </Text>
       </View>
     );
   }

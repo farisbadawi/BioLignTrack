@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -30,6 +32,7 @@ import {
   Target,
   Award,
   CheckCircle,
+  Camera,
 } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
@@ -169,6 +172,7 @@ export default function PatientDetailScreen() {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'history' | 'notes'>('overview');
+  const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
   const { showAlert, AlertComponent } = useCustomAlert();
 
   useEffect(() => {
@@ -192,7 +196,10 @@ export default function PatientDetailScreen() {
   const handleAddNote = async (note: { title: string; content: string; note_type: string; is_flagged: boolean }) => {
     if (!id) return;
     setSavingNote(true);
-    const result = await addPatientNote(id, note);
+    const result = await addPatientNote(id, {
+      ...note,
+      note_type: note.note_type as 'clinical' | 'progress' | 'concern' | 'general' | 'treatment_plan',
+    });
     setSavingNote(false);
     if (result.success) {
       setShowNoteModal(false);
@@ -318,6 +325,40 @@ export default function PatientDetailScreen() {
         onSave={handleAddNote}
         loading={savingNote}
       />
+
+      {/* Full-screen Photo Viewer */}
+      <Modal visible={!!selectedPhoto} animationType="fade" transparent>
+        <TouchableOpacity
+          style={styles.photoOverlay}
+          activeOpacity={1}
+          onPress={() => setSelectedPhoto(null)}
+        >
+          <View style={styles.photoViewerHeader}>
+            <Text style={styles.photoViewerTitle}>
+              {selectedPhoto?.photo_type?.charAt(0).toUpperCase() + selectedPhoto?.photo_type?.slice(1)} View
+              {selectedPhoto?.tray_number ? ` - Aligner #${selectedPhoto.tray_number}` : ''}
+            </Text>
+            <TouchableOpacity onPress={() => setSelectedPhoto(null)}>
+              <X size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          {selectedPhoto && (
+            <Image
+              source={{ uri: selectedPhoto.photo_url }}
+              style={styles.photoViewerImage}
+              resizeMode="contain"
+            />
+          )}
+          {selectedPhoto && (
+            <Text style={styles.photoViewerDate}>
+              {new Date(selectedPhoto.taken_at).toLocaleDateString('en-US', {
+                month: 'long', day: 'numeric', year: 'numeric',
+                hour: 'numeric', minute: '2-digit',
+              })}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </Modal>
 
       {/* Header */}
       <View style={styles.header}>
@@ -455,6 +496,48 @@ export default function PatientDetailScreen() {
                     </Text>
                   </View>
                 ))}
+              </Card>
+            )}
+
+            {/* Progress Photos */}
+            {patient.progressPhotos && patient.progressPhotos.length > 0 && (
+              <Card style={styles.sectionCard}>
+                <View style={styles.sectionHeader}>
+                  <Camera size={20} color={Colors.primary} />
+                  <Text style={styles.sectionTitle}>Progress Photos</Text>
+                </View>
+                {(() => {
+                  // Group photos by tray number
+                  const grouped: Record<number, any[]> = {};
+                  for (const photo of patient.progressPhotos) {
+                    const tray = photo.tray_number ?? 0;
+                    if (!grouped[tray]) grouped[tray] = [];
+                    grouped[tray].push(photo);
+                  }
+                  const trayNumbers = Object.keys(grouped).map(Number).sort((a, b) => b - a);
+                  return trayNumbers.map((tray) => (
+                    <View key={tray} style={styles.photoGroup}>
+                      <Text style={styles.photoGroupLabel}>
+                        {tray > 0 ? `Aligner #${tray}` : 'Other'}
+                      </Text>
+                      <View style={styles.photoGrid}>
+                        {grouped[tray].map((photo: any) => (
+                          <TouchableOpacity
+                            key={photo.id}
+                            style={styles.photoThumb}
+                            onPress={() => setSelectedPhoto(photo)}
+                          >
+                            <Image
+                              source={{ uri: photo.photo_url }}
+                              style={styles.photoThumbImage}
+                            />
+                            <Text style={styles.photoThumbLabel}>{photo.photo_type}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ));
+                })()}
               </Card>
             )}
 
@@ -971,6 +1054,67 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     paddingVertical: Spacing.lg,
+  },
+  // Progress photo styles
+  photoGroup: {
+    marginBottom: Spacing.md,
+  },
+  photoGroupLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  photoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  photoThumb: {
+    alignItems: 'center',
+  },
+  photoThumbImage: {
+    width: (Dimensions.get('window').width - Spacing.md * 2 - Spacing.lg * 2 - Spacing.sm * 2) / 3,
+    height: (Dimensions.get('window').width - Spacing.md * 2 - Spacing.lg * 2 - Spacing.sm * 2) / 3,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surface,
+  },
+  photoThumbLabel: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    textTransform: 'capitalize',
+  },
+  photoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoViewerHeader: {
+    position: 'absolute',
+    top: 60,
+    left: Spacing.md,
+    right: Spacing.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  photoViewerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  photoViewerImage: {
+    width: Dimensions.get('window').width - Spacing.md * 2,
+    height: Dimensions.get('window').height * 0.6,
+  },
+  photoViewerDate: {
+    position: 'absolute',
+    bottom: 60,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
   },
 });
 

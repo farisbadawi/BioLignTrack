@@ -8,12 +8,14 @@ import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { useCustomAlert } from '@/components/CustomAlert';
 import * as Clipboard from 'expo-clipboard';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function InviteScreen() {
   const { userRole, getDoctorCode, assignedPatients } = usePatientStore();
   const [doctorCode, setDoctorCode] = useState<string | null>(null);
   const [loadingCode, setLoadingCode] = useState(true);
   const { showAlert, AlertComponent } = useCustomAlert();
+  const { colors } = useTheme();
 
   useEffect(() => {
     const fetchDoctorCode = async () => {
@@ -30,9 +32,9 @@ export default function InviteScreen() {
   // Only show this screen for doctors
   if (userRole !== 'doctor') {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Access denied. This page is for doctors only.</Text>
+          <Text style={[styles.errorText, { color: colors.error }]}>Access denied. This page is for doctors only.</Text>
         </View>
       </SafeAreaView>
     );
@@ -71,13 +73,14 @@ export default function InviteScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
       <AlertComponent />
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Invite Patients</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Invite Patients</Text>
+          <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Share your code with patients to link their accounts
           </Text>
         </View>
@@ -85,82 +88,82 @@ export default function InviteScreen() {
         {/* Doctor Code Card */}
         <Card style={styles.codeCard}>
           <View style={styles.codeHeader}>
-            <Key size={28} color={Colors.primary} />
-            <Text style={styles.codeTitle}>Your Doctor Code</Text>
+            <Key size={28} color={colors.primary} />
+            <Text style={[styles.codeTitle, { color: colors.textPrimary }]}>Your Doctor Code</Text>
           </View>
 
           {loadingCode ? (
-            <ActivityIndicator size="large" color={Colors.primary} style={styles.loader} />
+            <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
           ) : doctorCode ? (
             <>
-              <View style={styles.codeDisplay}>
-                <Text style={styles.codeText}>{doctorCode}</Text>
+              <View style={[styles.codeDisplay, { backgroundColor: colors.primary + '15', borderColor: colors.primary + '30' }]}>
+                <Text style={[styles.codeText, { color: colors.primary }]}>{doctorCode}</Text>
               </View>
 
               <View style={styles.actionButtons}>
-                <TouchableOpacity style={styles.actionButton} onPress={copyToClipboard}>
-                  <Copy size={20} color={Colors.background} />
-                  <Text style={styles.actionButtonText}>Copy</Text>
+                <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primary }]} onPress={copyToClipboard}>
+                  <Copy size={20} color={colors.background} />
+                  <Text style={[styles.actionButtonText, { color: colors.background }]}>Copy</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.actionButton, styles.shareButton]} onPress={shareCode}>
-                  <ShareIcon size={20} color={Colors.primary} />
-                  <Text style={[styles.actionButtonText, styles.shareButtonText]}>Share</Text>
+                <TouchableOpacity style={[styles.actionButton, styles.shareButton, { backgroundColor: colors.background, borderColor: colors.primary }]} onPress={shareCode}>
+                  <ShareIcon size={20} color={colors.primary} />
+                  <Text style={[styles.actionButtonText, styles.shareButtonText, { color: colors.primary }]}>Share</Text>
                 </TouchableOpacity>
               </View>
             </>
           ) : (
-            <Text style={styles.errorText}>Could not load code. Please try again.</Text>
+            <Text style={[styles.errorText, { color: colors.error }]}>Could not load code. Please try again.</Text>
           )}
         </Card>
 
         {/* Instructions */}
         <Card style={styles.instructionsCard}>
-          <Text style={styles.instructionsTitle}>How it works</Text>
+          <Text style={[styles.instructionsTitle, { color: colors.textPrimary }]}>How it works</Text>
 
-          <View style={styles.step}>
-            <View style={styles.stepNumber}>
-              <Text style={styles.stepNumberText}>1</Text>
+          <View style={[styles.step, { borderBottomColor: colors.border }]}>
+            <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.stepNumberText, { color: colors.background }]}>1</Text>
             </View>
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>Share your code</Text>
-              <Text style={styles.stepDescription}>
+              <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>Share your code</Text>
+              <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
                 Give your code to patients verbally, via text, or use the share button
               </Text>
             </View>
           </View>
 
-          <View style={styles.step}>
-            <View style={styles.stepNumber}>
-              <Text style={styles.stepNumberText}>2</Text>
+          <View style={[styles.step, { borderBottomColor: colors.border }]}>
+            <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.stepNumberText, { color: colors.background }]}>2</Text>
             </View>
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>Patient signs up</Text>
-              <Text style={styles.stepDescription}>
+              <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>Patient signs up</Text>
+              <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
                 Patient downloads the app and creates an account
               </Text>
             </View>
           </View>
 
-          <View style={styles.step}>
-            <View style={styles.stepNumber}>
-              <Text style={styles.stepNumberText}>3</Text>
+          <View style={[styles.step, { borderBottomColor: colors.border }]}>
+            <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.stepNumberText, { color: colors.background }]}>3</Text>
             </View>
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>Patient enters code</Text>
-              <Text style={styles.stepDescription}>
+              <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>Patient enters code</Text>
+              <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
                 During sign-up or in Profile settings, patient enters your code
               </Text>
             </View>
           </View>
 
-          <View style={[styles.step, { borderBottomWidth: 0 }]}>
-            <View style={styles.stepNumber}>
-              <Text style={styles.stepNumberText}>4</Text>
+          <View style={[styles.step, { borderBottomWidth: 0 }, { borderBottomColor: colors.border }]}>
+            <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.stepNumberText, { color: colors.background }]}>4</Text>
             </View>
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>You're connected!</Text>
-              <Text style={styles.stepDescription}>
+              <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>You're connected!</Text>
+              <Text style={[styles.stepDescription, { color: colors.textSecondary }]}>
                 Patient appears in your Patients tab and you can track their progress
               </Text>
             </View>
@@ -169,10 +172,10 @@ export default function InviteScreen() {
 
         {/* Patient Count */}
         <Card style={styles.statsCard}>
-          <Users size={24} color={Colors.primary} />
+          <Users size={24} color={colors.primary} />
           <View style={styles.statsContent}>
-            <Text style={styles.statsValue}>{assignedPatients?.length || 0}</Text>
-            <Text style={styles.statsLabel}>Linked Patients</Text>
+            <Text style={[styles.statsValue, { color: colors.textPrimary }]}>{assignedPatients?.length || 0}</Text>
+            <Text style={[styles.statsLabel, { color: colors.textSecondary }]}>Linked Patients</Text>
           </View>
         </Card>
       </ScrollView>

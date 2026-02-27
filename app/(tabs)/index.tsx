@@ -1,12 +1,12 @@
-// app/(tabs)/index.tsx - COMPLETE REPLACEMENT
+// app/(tabs)/index.tsx
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { 
+import {
   Users, MessageCircle, Calendar, TrendingUp, AlertCircle, Clock,
-  Activity, Target, Award, Timer, Package, ChevronRight 
+  Activity, Target, Award, Timer, Package, ChevronRight
 } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '@/constants/colors';
+import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { ProgressRing } from '@/components/ProgressRing';
@@ -26,7 +26,7 @@ function PatientDashboard() {
     startWearSession,
     stopWearSession
   } = usePatientStore();
-  const { colors: themeColors } = useTheme();
+  const { colors } = useTheme();
 
   if (!patient || !profile) return null;
 
@@ -36,36 +36,37 @@ function PatientDashboard() {
   const progress = Math.min(todayHours / targetHours, 1);
   const progressPercentage = Math.round((patient.current_tray / patient.total_trays) * 100);
 
-  const QuickStatCard = ({ icon: Icon, title, value, subtitle, color = Colors.primary, onPress }: any) => (
+  const QuickStatCard = ({ icon: Icon, title, value, subtitle, color = colors.primary, onPress }: any) => (
     <TouchableOpacity onPress={onPress}>
       <Card style={styles.statCard}>
         <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
           <Icon size={20} color={color} />
         </View>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statLabel}>{title}</Text>
-        {subtitle && <Text style={styles.statSubtitle}>{subtitle}</Text>}
+        <Text style={[styles.statValue, { color: colors.textPrimary }]}>{value}</Text>
+        <Text style={[styles.statLabel, { color: colors.textPrimary }]}>{title}</Text>
+        {subtitle && <Text style={[styles.statSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
       </Card>
     </TouchableOpacity>
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.surface }]}>
-      <ScrollView style={[styles.scrollView, { backgroundColor: themeColors.surface }]} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: themeColors.textSecondary }]}>Good morning,</Text>
-            <Text style={[styles.patientName, { color: themeColors.textPrimary }]}>{patient.name}</Text>
+            <Text style={[styles.greeting, { color: colors.textSecondary }]}>Good morning,</Text>
+            <Text style={[styles.patientName, { color: colors.textPrimary }]}>{patient.name}</Text>
+            <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 8 }} />
           </View>
           <TouchableOpacity
             style={styles.notificationButton}
             onPress={() => router.push('/messages')}
           >
-            <MessageCircle size={24} color={themeColors.textSecondary} />
+            <MessageCircle size={24} color={colors.textSecondary} />
             {unreadMessages > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadMessages}</Text>
+              <View style={[styles.badge, { backgroundColor: colors.error }]}>
+                <Text style={[styles.badgeText, { color: colors.background }]}>{unreadMessages}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -74,40 +75,40 @@ function PatientDashboard() {
         {/* Today's Progress Ring */}
         <Card style={styles.progressCard}>
           <View style={styles.progressHeader}>
-            <Text style={styles.progressTitle}>Today's Wear Time</Text>
+            <Text style={[styles.progressTitle, { color: colors.textPrimary }]}>Today's Wear Time</Text>
             {currentSession && (
               <View style={styles.liveIndicator}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>Active</Text>
+                <View style={[styles.liveDot, { backgroundColor: colors.success }]} />
+                <Text style={[styles.liveText, { color: colors.success }]}>Active</Text>
               </View>
             )}
           </View>
-          
+
           <View style={styles.progressRingContainer}>
             <ProgressRing progress={progress} size={140} strokeWidth={12}>
-              <Text style={styles.progressValue}>
+              <Text style={[styles.progressValue, { color: colors.textPrimary }]}>
                 {todayHours.toFixed(1)}h
               </Text>
-              <Text style={styles.progressTarget}>
+              <Text style={[styles.progressTarget, { color: colors.textSecondary }]}>
                 of {targetHours}h goal
               </Text>
             </ProgressRing>
           </View>
-          
+
           <View style={styles.progressActions}>
             {currentSession ? (
               <TouchableOpacity
-                style={[styles.actionButton, styles.stopButton]}
+                style={[styles.actionButton, { backgroundColor: colors.error }]}
                 onPress={stopWearSession}
               >
-                <Text style={styles.stopButtonText}>Stop Session</Text>
+                <Text style={[styles.stopButtonText, { color: colors.background }]}>Stop Session</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
-                style={[styles.actionButton, styles.startButton]}
+                style={[styles.actionButton, { backgroundColor: colors.primary }]}
                 onPress={startWearSession}
               >
-                <Text style={styles.startButtonText}>Start Wearing</Text>
+                <Text style={[styles.startButtonText, { color: colors.background }]}>Start Wearing</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -122,13 +123,13 @@ function PatientDashboard() {
             subtitle={`${progressPercentage}% complete`}
             onPress={() => router.push('/tray')}
           />
-          
+
           <QuickStatCard
             icon={Target}
             title="Weekly Avg"
             value={`${(weeklyData.reduce((sum, day) => sum + day.hours, 0) / 7).toFixed(1)}h`}
             subtitle="this week"
-            color={Colors.success}
+            color={colors.success}
             onPress={() => router.push('/progress')}
           />
         </View>
@@ -136,26 +137,26 @@ function PatientDashboard() {
         {/* Current Status */}
         <Card style={styles.statusCard}>
           <View style={styles.statusHeader}>
-            <Activity size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Current Status</Text>
+            <Activity size={20} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Current Status</Text>
           </View>
-          
+
           <View style={styles.statusGrid}>
             <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Treatment Progress</Text>
-              <View style={styles.statusBar}>
-                <View style={[styles.statusFill, { width: `${progressPercentage}%` }]} />
+              <Text style={[styles.statusLabel, { color: colors.textPrimary }]}>Treatment Progress</Text>
+              <View style={[styles.statusBar, { backgroundColor: colors.border }]}>
+                <View style={[styles.statusFill, { width: `${progressPercentage}%`, backgroundColor: colors.primary }]} />
               </View>
-              <Text style={styles.statusText}>{progressPercentage}% Complete</Text>
+              <Text style={[styles.statusText, { color: colors.textSecondary }]}>{progressPercentage}% Complete</Text>
             </View>
-            
-            <View style={styles.statusDivider} />
-            
+
+            <View style={[styles.statusDivider, { backgroundColor: colors.border }]} />
+
             <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Today's Compliance</Text>
+              <Text style={[styles.statusLabel, { color: colors.textPrimary }]}>Today's Compliance</Text>
               <Text style={[
                 styles.statusValue,
-                { color: progress >= 0.9 ? Colors.success : progress >= 0.7 ? Colors.warning : Colors.error }
+                { color: progress >= 0.9 ? colors.success : progress >= 0.7 ? colors.warning : colors.error }
               ]}>
                 {Math.round(progress * 100)}%
               </Text>
@@ -165,43 +166,43 @@ function PatientDashboard() {
 
         {/* Quick Actions */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
+
           <View style={styles.quickActions}>
-            <TouchableOpacity 
-              style={styles.quickAction}
+            <TouchableOpacity
+              style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.border }]}
               onPress={() => router.push('/tray')}
             >
-              <Package size={24} color={Colors.primary} />
-              <Text style={styles.quickActionText}>Check Tray</Text>
-              <ChevronRight size={16} color={Colors.textSecondary} />
+              <Package size={24} color={colors.primary} />
+              <Text style={[styles.quickActionText, { color: colors.textPrimary }]}>Check Tray</Text>
+              <ChevronRight size={16} color={colors.textSecondary} />
             </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.quickAction}
+
+            <TouchableOpacity
+              style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.border }]}
               onPress={() => router.push('/messages')}
             >
-              <MessageCircle size={24} color={Colors.primary} />
-              <Text style={styles.quickActionText}>Message Doctor</Text>
-              <ChevronRight size={16} color={Colors.textSecondary} />
+              <MessageCircle size={24} color={colors.primary} />
+              <Text style={[styles.quickActionText, { color: colors.textPrimary }]}>Message Doctor</Text>
+              <ChevronRight size={16} color={colors.textSecondary} />
             </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.quickAction}
-              onPress={() => router.push('/appointments')}
+
+            <TouchableOpacity
+              style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.border }]}
+              onPress={() => router.push('/book-appointment')}
             >
-              <Calendar size={24} color={Colors.primary} />
-              <Text style={styles.quickActionText}>Appointments</Text>
-              <ChevronRight size={16} color={Colors.textSecondary} />
+              <Calendar size={24} color={colors.primary} />
+              <Text style={[styles.quickActionText, { color: colors.textPrimary }]}>Book Appointment</Text>
+              <ChevronRight size={16} color={colors.textSecondary} />
             </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.quickAction}
+
+            <TouchableOpacity
+              style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.border }]}
               onPress={() => router.push('/progress')}
             >
-              <TrendingUp size={24} color={Colors.primary} />
-              <Text style={styles.quickActionText}>View Progress</Text>
-              <ChevronRight size={16} color={Colors.textSecondary} />
+              <TrendingUp size={24} color={colors.primary} />
+              <Text style={[styles.quickActionText, { color: colors.textPrimary }]}>View Progress</Text>
+              <ChevronRight size={16} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -209,35 +210,35 @@ function PatientDashboard() {
         {/* Weekly Summary */}
         <Card style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
-            <Clock size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>This Week</Text>
+            <Clock size={20} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>This Week</Text>
           </View>
-          
+
           <View style={styles.weeklyChart}>
             {weeklyData.map((day, index) => {
               const dayName = new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' });
               const height = Math.max((day.hours / targetHours) * 60, 4);
               const today = new Date().toISOString().split('T')[0];
               const isToday = day.date === today;
-              
+
               return (
                 <View key={day.date} style={styles.chartDay}>
-                  <View style={styles.chartBar}>
-                    <View 
+                  <View style={[styles.chartBar, { backgroundColor: colors.surface }]}>
+                    <View
                       style={[
-                        styles.chartBarFill, 
-                        { 
+                        styles.chartBarFill,
+                        {
                           height: height,
-                          backgroundColor: day.hours >= targetHours * 0.9 ? Colors.success :
-                                         day.hours >= targetHours * 0.7 ? Colors.warning : Colors.error
+                          backgroundColor: day.hours >= targetHours * 0.9 ? colors.success :
+                                         day.hours >= targetHours * 0.7 ? colors.warning : colors.error
                         }
-                      ]} 
+                      ]}
                     />
                   </View>
-                  <Text style={[styles.chartDayText, isToday && styles.chartTodayText]}>
+                  <Text style={[styles.chartDayText, { color: isToday ? colors.primary : colors.textSecondary }, isToday && styles.chartTodayText]}>
                     {dayName}
                   </Text>
-                  <Text style={styles.chartHoursText}>
+                  <Text style={[styles.chartHoursText, { color: colors.textSecondary }]}>
                     {day.hours.toFixed(1)}h
                   </Text>
                 </View>
@@ -250,7 +251,7 @@ function PatientDashboard() {
   );
 }
 
-// Doctor Dashboard Component (from your existing code)
+// Doctor Dashboard Component
 function DoctorDashboard() {
   const {
     profile,
@@ -258,19 +259,16 @@ function DoctorDashboard() {
     unreadMessages,
     invitations
   } = usePatientStore();
-  const { colors: themeColors } = useTheme();
+  const { colors } = useTheme();
 
   if (!profile) return null;
 
   const activePatients = assignedPatients.length;
   const pendingInvitations = invitations.filter(inv => inv.status === 'pending').length;
 
-  // Calculate urgent patients based on actual compliance data
   const urgentPatients = assignedPatients.filter(patient => {
-    // A patient needs attention if they have low compliance or are behind on trays
     const patientData = patient.patientData;
     if (!patientData) return false;
-    // Mark as urgent if current tray is significantly behind expected progress
     const daysSinceStart = patientData.treatment_start_date
       ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
       : 0;
@@ -278,35 +276,36 @@ function DoctorDashboard() {
     return patientData.current_tray < expectedTray - 1;
   }).length;
 
-  const StatCard = ({ icon: Icon, title, value, subtitle, color = Colors.primary, onPress }: any) => (
+  const StatCard = ({ icon: Icon, title, value, subtitle, color = colors.primary, onPress }: any) => (
     <TouchableOpacity onPress={onPress}>
       <Card style={styles.statCard}>
         <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
           <Icon size={24} color={color} />
         </View>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statLabel}>{title}</Text>
-        {subtitle && <Text style={styles.statSubtitle}>{subtitle}</Text>}
+        <Text style={[styles.statValue, { color: colors.textPrimary }]}>{value}</Text>
+        <Text style={[styles.statLabel, { color: colors.textPrimary }]}>{title}</Text>
+        {subtitle && <Text style={[styles.statSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
       </Card>
     </TouchableOpacity>
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: themeColors.surface }]}>
-      <ScrollView style={[styles.scrollView, { backgroundColor: themeColors.surface }]} showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: themeColors.textSecondary }]}>Good morning,</Text>
-            <Text style={[styles.doctorName, { color: themeColors.textPrimary }]}>Dr. {profile.name?.replace('Dr. ', '') || profile.name}</Text>
+            <Text style={[styles.greeting, { color: colors.textSecondary }]}>Good morning,</Text>
+            <Text style={[styles.doctorName, { color: colors.textPrimary }]}>Dr. {profile.name?.replace('Dr. ', '') || profile.name}</Text>
+            <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 8 }} />
           </View>
           <TouchableOpacity
             style={styles.notificationButton}
             onPress={() => router.push('/messages')}
           >
-            <MessageCircle size={24} color={themeColors.textSecondary} />
+            <MessageCircle size={24} color={colors.textSecondary} />
             {unreadMessages > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadMessages}</Text>
+              <View style={[styles.badge, { backgroundColor: colors.error }]}>
+                <Text style={[styles.badgeText, { color: colors.background }]}>{unreadMessages}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -320,41 +319,50 @@ function DoctorDashboard() {
             subtitle="under care"
             onPress={() => router.push('/patients')}
           />
-          
+
           <StatCard
             icon={MessageCircle}
             title="Messages"
             value={unreadMessages}
             subtitle="unread"
-            color={Colors.primary}
+            color={colors.primary}
             onPress={() => router.push('/messages')}
           />
-          
+
           <StatCard
             icon={AlertCircle}
             title="Need Attention"
             value={urgentPatients}
             subtitle="patients"
-            color={Colors.warning}
+            color={colors.warning}
             onPress={() => router.push('/patients?filter=urgent')}
           />
-          
+
           <StatCard
             icon={Calendar}
             title="Invitations"
             value={pendingInvitations}
             subtitle="pending"
-            color={Colors.success}
+            color={colors.success}
             onPress={() => router.push('/invite')}
           />
         </View>
 
         <Card style={styles.scheduleCard}>
           <View style={styles.scheduleHeader}>
-            <Clock size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Today's Schedule</Text>
+            <Clock size={20} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Appointments</Text>
           </View>
-          <Text style={styles.scheduleSubtitle}>No appointments scheduled for today</Text>
+          <Text style={[styles.scheduleSubtitle, { color: colors.textSecondary }]}>
+            View and manage your Calendly bookings
+          </Text>
+          <TouchableOpacity
+            style={[styles.viewBookingsButton, { backgroundColor: colors.primary }]}
+            onPress={() => router.push('/view-bookings')}
+          >
+            <Calendar size={18} color={colors.background} />
+            <Text style={[styles.viewBookingsText, { color: colors.background }]}>View Bookings</Text>
+          </TouchableOpacity>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -364,32 +372,29 @@ function DoctorDashboard() {
 // Main Component with Role Detection
 export default function HomeScreen() {
   const { userRole, loading, profile } = usePatientStore();
+  const { colors } = useTheme();
 
-  // Show loading while determining role
   if (loading || !profile) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Return appropriate dashboard based on user role
   if (userRole === 'doctor') {
     return <DoctorDashboard />;
   }
-  
-  // Default to patient dashboard
+
   return <PatientDashboard />;
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.surface,
   },
   loadingContainer: {
     flex: 1,
@@ -398,7 +403,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: Colors.textSecondary,
   },
   scrollView: {
     flex: 1,
@@ -412,18 +416,15 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 16,
-    color: Colors.textSecondary,
     fontWeight: '400',
   },
   patientName: {
     fontSize: 24,
-    color: Colors.textPrimary,
     fontWeight: '700',
     marginTop: 2,
   },
   doctorName: {
     fontSize: 24,
-    color: Colors.textPrimary,
     fontWeight: '700',
     marginTop: 2,
   },
@@ -435,7 +436,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    backgroundColor: Colors.error,
     borderRadius: 10,
     minWidth: 20,
     height: 20,
@@ -443,7 +443,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badgeText: {
-    color: Colors.background,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -461,7 +460,6 @@ const styles = StyleSheet.create({
   progressTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
   },
   liveIndicator: {
     flexDirection: 'row',
@@ -472,11 +470,9 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: Colors.success,
   },
   liveText: {
     fontSize: 12,
-    color: Colors.success,
     fontWeight: '600',
   },
   progressRingContainer: {
@@ -485,11 +481,9 @@ const styles = StyleSheet.create({
   progressValue: {
     fontSize: 24,
     fontWeight: '700',
-    color: Colors.textPrimary,
   },
   progressTarget: {
     fontSize: 12,
-    color: Colors.textSecondary,
     marginTop: 2,
   },
   progressActions: {
@@ -501,19 +495,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
   },
-  startButton: {
-    backgroundColor: Colors.primary,
-  },
-  stopButton: {
-    backgroundColor: Colors.error,
-  },
   startButtonText: {
-    color: Colors.background,
     fontSize: 16,
     fontWeight: '600',
   },
   stopButtonText: {
-    color: Colors.background,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -538,18 +524,15 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.textPrimary,
     marginBottom: Spacing.xs,
   },
   statLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: Colors.textPrimary,
     textAlign: 'center',
   },
   statSubtitle: {
     fontSize: 10,
-    color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: 2,
   },
@@ -565,7 +548,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.textPrimary,
   },
   statusGrid: {
     gap: Spacing.md,
@@ -576,28 +558,23 @@ const styles = StyleSheet.create({
   statusLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.textPrimary,
     marginBottom: Spacing.sm,
   },
   statusBar: {
     width: '100%',
     height: 8,
-    backgroundColor: Colors.border,
     borderRadius: 4,
     overflow: 'hidden',
     marginBottom: Spacing.xs,
   },
   statusFill: {
     height: '100%',
-    backgroundColor: Colors.primary,
   },
   statusText: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   statusDivider: {
     height: 1,
-    backgroundColor: Colors.border,
     marginVertical: Spacing.sm,
   },
   statusValue: {
@@ -614,17 +591,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: Spacing.md,
-    backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.border,
     gap: Spacing.sm,
   },
   quickActionText: {
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.textPrimary,
   },
   summaryCard: {
     marginBottom: Spacing.xl,
@@ -649,7 +623,6 @@ const styles = StyleSheet.create({
   chartBar: {
     width: 20,
     height: 60,
-    backgroundColor: Colors.surface,
     borderRadius: 2,
     justifyContent: 'flex-end',
     overflow: 'hidden',
@@ -661,15 +634,12 @@ const styles = StyleSheet.create({
   },
   chartDayText: {
     fontSize: 12,
-    color: Colors.textSecondary,
   },
   chartTodayText: {
-    color: Colors.primary,
     fontWeight: '600',
   },
   chartHoursText: {
     fontSize: 10,
-    color: Colors.textSecondary,
   },
   scheduleCard: {
     marginBottom: Spacing.xl,
@@ -682,6 +652,19 @@ const styles = StyleSheet.create({
   },
   scheduleSubtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+  },
+  viewBookingsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+  },
+  viewBookingsText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

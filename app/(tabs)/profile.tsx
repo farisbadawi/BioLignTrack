@@ -60,6 +60,7 @@ const TimePickerModal = ({
   times: string[];
 }) => {
   const [selectedTimes, setSelectedTimes] = useState<string[]>(times);
+  const { colors: themeColors } = useTheme();
   const availableTimes = [
     '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
     '13:00', '14:00', '15:00', '16:00', '17:00', '18:00',
@@ -85,27 +86,32 @@ const TimePickerModal = ({
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <View style={[styles.modalContent, { backgroundColor: themeColors.background }]}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Reminder Times</Text>
+            <Text style={[styles.modalTitle, { color: themeColors.textPrimary }]}>Reminder Times</Text>
             <TouchableOpacity onPress={onClose}>
-              <X size={24} color={Colors.textSecondary} />
+              <X size={24} color={themeColors.textSecondary} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.modalSubtitle}>Select up to 5 reminder times</Text>
+          <Text style={[styles.modalSubtitle, { color: themeColors.textSecondary }]}>Select up to 5 reminder times</Text>
           <View style={styles.timeGrid}>
             {availableTimes.map(time => (
               <TouchableOpacity
                 key={time}
                 style={[
                   styles.timeChip,
-                  selectedTimes.includes(time) && styles.timeChipSelected,
+                  { borderColor: themeColors.border, backgroundColor: themeColors.surface },
+                  selectedTimes.includes(time) && [
+                    styles.timeChipSelected,
+                    { backgroundColor: themeColors.primary, borderColor: themeColors.primary },
+                  ],
                 ]}
                 onPress={() => toggleTime(time)}
               >
                 <Text
                   style={[
                     styles.timeChipText,
+                    { color: themeColors.textPrimary },
                     selectedTimes.includes(time) && styles.timeChipTextSelected,
                   ]}
                 >
@@ -264,9 +270,9 @@ export default function ProfileScreen() {
 
   if (!profile) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+      <SafeAreaView style={[styles.loadingContainer, { backgroundColor: themeColors.surface }]}>
+        <ActivityIndicator size="large" color={themeColors.primary} />
+        <Text style={[styles.loadingText, { color: themeColors.textSecondary }]}>Loading profile...</Text>
       </SafeAreaView>
     );
   }
@@ -326,7 +332,7 @@ export default function ProfileScreen() {
     children: React.ReactNode;
   }) => (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={[styles.sectionTitle, { color: themeColors.textPrimary }]}>{title}</Text>
       <Card style={styles.sectionCard}>{children}</Card>
     </View>
   );
@@ -352,17 +358,17 @@ export default function ProfileScreen() {
       disabled={!onPress && !rightElement}
     >
       <View style={styles.settingLeft}>
-        <View style={[styles.settingIcon, danger && styles.settingIconDanger]}>
-          <Icon size={20} color={danger ? Colors.error : Colors.primary} />
+        <View style={[styles.settingIcon, { backgroundColor: themeColors.surface }, danger && styles.settingIconDanger]}>
+          <Icon size={20} color={danger ? themeColors.error : themeColors.primary} />
         </View>
         <View style={styles.settingContent}>
-          <Text style={[styles.settingTitle, danger && styles.settingTitleDanger]}>
+          <Text style={[styles.settingTitle, { color: danger ? themeColors.error : themeColors.textPrimary }]}>
             {title}
           </Text>
-          {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+          {subtitle && <Text style={[styles.settingSubtitle, { color: themeColors.textSecondary }]}>{subtitle}</Text>}
         </View>
       </View>
-      {rightElement || (onPress && <ChevronRight size={20} color={Colors.textSecondary} />)}
+      {rightElement || (onPress && <ChevronRight size={20} color={themeColors.textSecondary} />)}
     </TouchableOpacity>
   );
 
@@ -423,7 +429,10 @@ export default function ProfileScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: themeColors.textPrimary }]}>Profile & Settings</Text>
+          <View>
+            <Text style={[styles.title, { color: themeColors.textPrimary }]}>Profile & Settings</Text>
+            <View style={{ height: 3, width: 40, backgroundColor: themeColors.primary, borderRadius: 2 }} />
+          </View>
           {savingSettings && (
             <ActivityIndicator size="small" color={themeColors.primary} />
           )}
@@ -432,16 +441,16 @@ export default function ProfileScreen() {
         {/* User Info Card */}
         <Card style={styles.userCard}>
           <View style={styles.userInfo}>
-            <View style={styles.avatar}>
-              <User size={32} color={Colors.primary} />
+            <View style={[styles.avatar, { backgroundColor: themeColors.surface }]}>
+              <User size={32} color={themeColors.primary} />
             </View>
             <View style={styles.userDetails}>
-              <Text style={styles.userName}>{getDisplayName()}</Text>
-              <Text style={styles.userEmail}>{getDisplayEmail()}</Text>
+              <Text style={[styles.userName, { color: themeColors.textPrimary }]}>{getDisplayName()}</Text>
+              <Text style={[styles.userEmail, { color: themeColors.textSecondary }]}>{getDisplayEmail()}</Text>
               <View style={styles.roleBadge}>
                 <Text style={styles.roleText}>{getRoleDisplayName()}</Text>
               </View>
-              <Text style={styles.userStatus}>{getTreatmentInfo()}</Text>
+              <Text style={[styles.userStatus, { color: themeColors.textSecondary }]}>{getTreatmentInfo()}</Text>
             </View>
           </View>
 
@@ -449,7 +458,7 @@ export default function ProfileScreen() {
           {userRole === 'patient' && patient && (
             <View style={styles.treatmentProgress}>
               <Text style={styles.progressLabel}>Treatment Progress</Text>
-              <View style={styles.progressBar}>
+              <View style={[styles.progressBar, { backgroundColor: themeColors.border }]}>
                 <View
                   style={[
                     styles.progressFill,
@@ -458,7 +467,7 @@ export default function ProfileScreen() {
                 />
               </View>
               <View style={styles.progressStats}>
-                <Text style={styles.progressText}>
+                <Text style={[styles.progressText, { color: themeColors.textSecondary }]}>
                   {Math.round((patient.current_tray / patient.total_trays) * 100)}% Complete
                 </Text>
                 {complianceStats && complianceStats.streak > 0 && (
@@ -470,20 +479,20 @@ export default function ProfileScreen() {
 
           {/* Compliance Stats for patients */}
           {userRole === 'patient' && complianceStats && (
-            <View style={styles.statsRow}>
+            <View style={[styles.statsRow, { borderTopColor: themeColors.border }]}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{complianceStats.weeklyAverage}h</Text>
-                <Text style={styles.statLabel}>Weekly Avg</Text>
+                <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Weekly Avg</Text>
               </View>
-              <View style={styles.statDivider} />
+              <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{complianceStats.monthlyAverage}h</Text>
-                <Text style={styles.statLabel}>Monthly Avg</Text>
+                <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Monthly Avg</Text>
               </View>
-              <View style={styles.statDivider} />
+              <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{treatmentBouts.length}</Text>
-                <Text style={styles.statLabel}>Treatments</Text>
+                <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Treatments</Text>
               </View>
             </View>
           )}
@@ -493,18 +502,18 @@ export default function ProfileScreen() {
         {userRole === 'doctor' && (
           <ProfileSection title="Your Doctor Code">
             <View style={styles.doctorCodeSection}>
-              <Text style={styles.doctorCodeLabel}>
+              <Text style={[styles.doctorCodeLabel, { color: themeColors.textSecondary }]}>
                 Share this code with patients to link their accounts:
               </Text>
               {doctorCode ? (
                 <View style={styles.doctorCodeDisplay}>
-                  <Text style={styles.doctorCodeText}>{doctorCode}</Text>
-                  <TouchableOpacity style={styles.copyButton} onPress={handleCopyDoctorCode}>
-                    <Copy size={18} color={Colors.primary} />
+                  <Text style={[styles.doctorCodeText, { color: themeColors.primary }]}>{doctorCode}</Text>
+                  <TouchableOpacity style={[styles.copyButton, { backgroundColor: themeColors.surface }]} onPress={handleCopyDoctorCode}>
+                    <Copy size={18} color={themeColors.primary} />
                   </TouchableOpacity>
                 </View>
               ) : (
-                <ActivityIndicator size="small" color={Colors.primary} />
+                <ActivityIndicator size="small" color={themeColors.primary} />
               )}
             </View>
           </ProfileSection>
@@ -520,22 +529,23 @@ export default function ProfileScreen() {
                     <User size={24} color={Colors.background} />
                   </View>
                   <View style={styles.linkedDoctorDetails}>
-                    <Text style={styles.linkedDoctorName}>{assignedDoctor.name}</Text>
-                    <Text style={styles.linkedDoctorEmail}>{assignedDoctor.email}</Text>
+                    <Text style={[styles.linkedDoctorName, { color: themeColors.textPrimary }]}>{assignedDoctor.name}</Text>
+                    <Text style={[styles.linkedDoctorEmail, { color: themeColors.textSecondary }]}>{assignedDoctor.email}</Text>
                     {assignedDoctor.phone && (
-                      <Text style={styles.linkedDoctorPhone}>{assignedDoctor.phone}</Text>
+                      <Text style={[styles.linkedDoctorPhone, { color: themeColors.textSecondary }]}>{assignedDoctor.phone}</Text>
                     )}
                   </View>
                 </View>
               ) : (
                 <View style={styles.linkDoctorForm}>
-                  <Text style={styles.linkDoctorLabel}>
+                  <Text style={[styles.linkDoctorLabel, { color: themeColors.textSecondary }]}>
                     Enter your doctor's code to link your account:
                   </Text>
                   <View style={styles.linkDoctorInputRow}>
                     <TextInput
-                      style={styles.linkDoctorInput}
+                      style={[styles.linkDoctorInput, { borderColor: themeColors.border, color: themeColors.textPrimary, backgroundColor: themeColors.surface }]}
                       placeholder="Enter doctor code"
+                      placeholderTextColor={themeColors.textSecondary}
                       value={doctorCodeInput}
                       onChangeText={text => setDoctorCodeInput(text.toUpperCase())}
                       autoCapitalize="characters"
@@ -564,12 +574,12 @@ export default function ProfileScreen() {
               <Switch
                 value={notificationSettings?.push_enabled ?? true}
                 onValueChange={value => handleNotificationSettingChange('push_enabled', value)}
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Mail}
             title="Email Notifications"
@@ -578,12 +588,12 @@ export default function ProfileScreen() {
               <Switch
                 value={notificationSettings?.email_enabled ?? true}
                 onValueChange={value => handleNotificationSettingChange('email_enabled', value)}
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={MessageSquare}
             title="Message Notifications"
@@ -594,14 +604,14 @@ export default function ProfileScreen() {
                 onValueChange={value =>
                   handleNotificationSettingChange('message_notifications', value)
                 }
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
           {userRole === 'patient' && (
             <>
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
               <SettingRow
                 icon={Clock}
                 title="Wear Reminders"
@@ -616,14 +626,14 @@ export default function ProfileScreen() {
                     onValueChange={value =>
                       handleNotificationSettingChange('wear_reminders', value)
                     }
-                    trackColor={{ false: Colors.border, true: Colors.primary }}
-                    thumbColor={Colors.background}
+                    trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                    thumbColor={themeColors.background}
                   />
                 }
               />
               {notificationSettings?.wear_reminders && (
                 <>
-                  <View style={styles.divider} />
+                  <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
                   <SettingRow
                     icon={Clock}
                     title="Reminder Times"
@@ -632,7 +642,7 @@ export default function ProfileScreen() {
                   />
                 </>
               )}
-              <View style={styles.divider} />
+              <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
               <SettingRow
                 icon={AlertTriangle}
                 title="Tray Change Reminders"
@@ -643,14 +653,14 @@ export default function ProfileScreen() {
                     onValueChange={value =>
                       handleNotificationSettingChange('tray_change_reminders', value)
                     }
-                    trackColor={{ false: Colors.border, true: Colors.primary }}
-                    thumbColor={Colors.background}
+                    trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                    thumbColor={themeColors.background}
                   />
                 }
               />
             </>
           )}
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Calendar}
             title="Appointment Reminders"
@@ -661,12 +671,12 @@ export default function ProfileScreen() {
                 onValueChange={value =>
                   handleNotificationSettingChange('appointment_reminders', value)
                 }
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={TrendingUp}
             title="Weekly Summary"
@@ -675,8 +685,8 @@ export default function ProfileScreen() {
               <Switch
                 value={notificationSettings?.weekly_summary ?? true}
                 onValueChange={value => handleNotificationSettingChange('weekly_summary', value)}
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
@@ -695,7 +705,7 @@ export default function ProfileScreen() {
               setTheme(nextTheme);
             }}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Globe}
             title="Language"
@@ -708,7 +718,7 @@ export default function ProfileScreen() {
               });
             }}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Clock}
             title="Time Format"
@@ -718,7 +728,7 @@ export default function ProfileScreen() {
               handleUserSettingChange('time_format', newFormat);
             }}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Vibrate}
             title="Haptic Feedback"
@@ -727,12 +737,12 @@ export default function ProfileScreen() {
               <Switch
                 value={userSettings?.haptic_feedback ?? true}
                 onValueChange={value => handleUserSettingChange('haptic_feedback', value)}
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Volume2}
             title="Sound Effects"
@@ -741,8 +751,8 @@ export default function ProfileScreen() {
               <Switch
                 value={userSettings?.sound_enabled ?? true}
                 onValueChange={value => handleUserSettingChange('sound_enabled', value)}
-                trackColor={{ false: Colors.border, true: Colors.primary }}
-                thumbColor={Colors.background}
+                trackColor={{ false: themeColors.border, true: themeColors.primary }}
+                thumbColor={themeColors.background}
               />
             }
           />
@@ -764,7 +774,7 @@ export default function ProfileScreen() {
                 });
               }}
             />
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
             <SettingRow
               icon={Download}
               title="Export Treatment Data"
@@ -801,7 +811,7 @@ export default function ProfileScreen() {
               });
             }}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Shield}
             title="Data Security"
@@ -832,7 +842,7 @@ export default function ProfileScreen() {
               });
             }}
           />
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
           <SettingRow
             icon={Phone}
             title="Contact Support"
@@ -851,16 +861,16 @@ export default function ProfileScreen() {
         {/* Sign Out */}
         <Card style={styles.logoutCard}>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <LogOut size={20} color={Colors.error} />
-            <Text style={styles.logoutText}>Sign Out</Text>
+            <LogOut size={20} color={themeColors.error} />
+            <Text style={[styles.logoutText, { color: themeColors.error }]}>Sign Out</Text>
           </TouchableOpacity>
         </Card>
 
         {/* App Info */}
         <View style={styles.appInfo}>
-          <Text style={styles.appInfoText}>BioLign Progress v1.0.0</Text>
-          <Text style={styles.appInfoText}>2024 BioLign Orthodontics</Text>
-          <Text style={styles.appInfoText}>
+          <Text style={[styles.appInfoText, { color: themeColors.textSecondary }]}>BioLign Progress v1.0.0</Text>
+          <Text style={[styles.appInfoText, { color: themeColors.textSecondary }]}>2024 BioLign Orthodontics</Text>
+          <Text style={[styles.appInfoText, { color: themeColors.textSecondary }]}>
             Account: {getRoleDisplayName()} | ID: {profile.id.slice(0, 8)}...
           </Text>
         </View>

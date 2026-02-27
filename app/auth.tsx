@@ -1,12 +1,14 @@
 // app/auth.tsx - FIXED VERSION WITHOUT INFINITE LOOPS
 import React, { useState, useEffect, useCallback } from 'react'
-import { View, Text, TextInput, StyleSheet, ScrollView } from 'react-native'
+import { View, Text, TextInput, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { Stethoscope, User, ArrowLeft } from 'lucide-react-native'
 import { Button } from '@/components/Button'
 import { Colors, Spacing, BorderRadius } from '@/constants/colors'
 import { usePatientStore } from '@/stores/patient-store'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useCustomAlert } from '@/components/CustomAlert'
+import { useTheme } from '@/contexts/ThemeContext'
 
 export default function AuthScreen() {
   const [isSignUp, setIsSignUp] = useState(false)
@@ -19,6 +21,7 @@ export default function AuthScreen() {
   const { signIn, signUp, clearAuth, joinDoctorByCode } = usePatientStore()
   const params = useLocalSearchParams()
   const { showAlert, AlertComponent } = useCustomAlert()
+  const { colors } = useTheme()
 
   // Get role and invitation code from params
   const role = (params.role as string) || 'patient'
@@ -27,7 +30,7 @@ export default function AuthScreen() {
   // Clear auth state once when component mounts
   useEffect(() => {
     clearAuth()
-    
+
     // Set default to sign up if coming from role selection
     if (params.role) {
       setIsSignUp(true)
@@ -44,10 +47,10 @@ export default function AuthScreen() {
       return
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       showAlert({
         title: 'Password Too Short',
-        message: 'Password must be at least 6 characters',
+        message: 'Password must be at least 8 characters',
         type: 'error',
       })
       return
@@ -58,18 +61,13 @@ export default function AuthScreen() {
     try {
       let result
       if (isSignUp) {
-        console.log('Attempting signUp...')
         result = await signUp(email, password, name, role, invitationCode)
 
         if (!result.error) {
-          console.log('SignUp successful')
-
           // If patient entered a doctor code, join that doctor
           if (role === 'patient' && doctorCode.trim()) {
-            console.log('Joining doctor by code...')
             const joinResult = await joinDoctorByCode(doctorCode.trim())
             if (!joinResult.success) {
-              console.log('Join doctor warning:', joinResult.error)
               showAlert({
                 title: 'Account Created',
                 message: `Your account was created but we couldn't link to the doctor: ${joinResult.error}. You can add your doctor later in Settings.`,
@@ -97,7 +95,6 @@ export default function AuthScreen() {
               {
                 text: 'OK',
                 onPress: () => {
-                  console.log('Navigating...')
                   // Patients go to onboarding, doctors go to tabs
                   if (role === 'patient') {
                     router.replace('/onboarding')
@@ -109,7 +106,6 @@ export default function AuthScreen() {
             ]
           })
         } else {
-          console.log('SignUp error:', result.error)
           showAlert({
             title: 'Error',
             message: result.error.message,
@@ -117,14 +113,11 @@ export default function AuthScreen() {
           })
         }
       } else {
-        console.log('Attempting signIn...')
         result = await signIn(email, password)
 
         if (!result.error) {
-          console.log('SignIn successful, navigating...')
           router.replace('/(tabs)')
         } else {
-          console.log('SignIn error:', result.error)
           showAlert({
             title: 'Error',
             message: result.error.message,
@@ -133,7 +126,6 @@ export default function AuthScreen() {
         }
       }
     } catch (error) {
-      console.error('Auth exception:', error)
       showAlert({
         title: 'Error',
         message: 'Something went wrong. Please try again.',
@@ -148,46 +140,6 @@ export default function AuthScreen() {
     setIsSignUp(!isSignUp)
   }, [isSignUp])
 
-  const handleDemoLogin = useCallback(async (demoType: 'patient' | 'doctor') => {
-    setLoading(true)
-    try {
-      const demoCredentials = {
-        patient: { email: 'demo.patient@biolign.com', password: 'demo123', name: 'Demo Patient' },
-        doctor: { email: 'demo.doctor@biolign.com', password: 'demo123', name: 'Dr. Demo' }
-      }
-
-      const creds = demoCredentials[demoType]
-
-      // Try to sign in first
-      const result = await signIn(creds.email, creds.password)
-
-      if (result.error) {
-        // If sign in fails, try to create account
-        console.log('Sign in failed, creating demo account...')
-        const signUpResult = await signUp(creds.email, creds.password, creds.name, demoType)
-        if (!signUpResult.error) {
-          router.replace('/(tabs)')
-        } else {
-          showAlert({
-            title: 'Error',
-            message: signUpResult.error?.message || 'Could not create demo account',
-            type: 'error',
-          })
-        }
-      } else {
-        router.replace('/(tabs)')
-      }
-    } catch (error) {
-      showAlert({
-        title: 'Error',
-        message: 'Could not access demo account',
-        type: 'error',
-      })
-    } finally {
-      setLoading(false)
-    }
-  }, [signIn, signUp, showAlert])
-
   const getRoleTitle = () => {
     return role === 'doctor' ? 'Doctor Portal' : 'Patient Portal'
   }
@@ -200,18 +152,35 @@ export default function AuthScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right', 'bottom']}>
       <AlertComponent />
+      <TouchableOpacity
+        style={styles.topBackButton}
+        onPress={() => router.replace('/role-selection')}
+      >
+        <ArrowLeft size={22} color={colors.primary} />
+        <Text style={[styles.topBackText, { color: colors.primary }]}>Change Role</Text>
+      </TouchableOpacity>
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.logo}>{role === 'doctor' ? '👨‍⚕️' : '🦷'}</Text>
-          <Text style={styles.title}>{getRoleTitle()}</Text>
-          <Text style={styles.subtitle}>
+          <Image
+            source={require('@/assets/images/biolign-logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+          <View style={[styles.roleIconContainer, { backgroundColor: colors.surface, borderColor: colors.primary }]}>
+            {role === 'doctor'
+              ? <Stethoscope size={32} color={colors.primary} />
+              : <User size={32} color={colors.primary} />
+            }
+          </View>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>{getRoleTitle()}</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             {getRoleSubtitle()}
           </Text>
           {invitationCode && (
-            <View style={styles.invitationBadge}>
-              <Text style={styles.invitationText}>Invitation: {invitationCode}</Text>
+            <View style={[styles.invitationBadge, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.invitationText, { color: colors.background }]}>Invitation: {invitationCode}</Text>
             </View>
           )}
         </View>
@@ -219,10 +188,11 @@ export default function AuthScreen() {
         <View style={styles.form}>
           {isSignUp && (
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Full Name</Text>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Full Name</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
                 placeholder={role === 'doctor' ? 'Enter your full name (Dr. ...)' : 'Enter your full name'}
+                placeholderTextColor={colors.textSecondary}
                 value={name}
                 onChangeText={setName}
                 autoCapitalize="words"
@@ -232,10 +202,11 @@ export default function AuthScreen() {
           )}
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={[styles.label, { color: colors.textPrimary }]}>Email</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
               placeholder="Enter your email"
+              placeholderTextColor={colors.textSecondary}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -245,32 +216,34 @@ export default function AuthScreen() {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
+            <Text style={[styles.label, { color: colors.textPrimary }]}>Password</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
               placeholder="Enter your password"
+              placeholderTextColor={colors.textSecondary}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
               autoComplete="password"
             />
             {isSignUp && (
-              <Text style={styles.helpText}>Must be at least 6 characters</Text>
+              <Text style={[styles.helpText, { color: colors.textSecondary }]}>Must be at least 8 characters</Text>
             )}
           </View>
 
           {isSignUp && role === 'patient' && !invitationCode && (
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Doctor Code (Optional)</Text>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Doctor Code (Optional)</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
                 placeholder="Enter your doctor's code"
+                placeholderTextColor={colors.textSecondary}
                 value={doctorCode}
                 onChangeText={(text) => setDoctorCode(text.toUpperCase())}
                 autoCapitalize="characters"
                 autoCorrect={false}
               />
-              <Text style={styles.helpText}>
+              <Text style={[styles.helpText, { color: colors.textSecondary }]}>
                 Ask your orthodontist for their code to link your account
               </Text>
             </View>
@@ -290,42 +263,10 @@ export default function AuthScreen() {
             style={styles.secondaryButton}
           />
 
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <View style={styles.demoSection}>
-            <Text style={styles.demoTitle}>Try Demo Accounts</Text>
-            <View style={styles.demoButtons}>
-              <Button
-                title="Demo Patient"
-                onPress={() => handleDemoLogin('patient')}
-                variant="secondary"
-                disabled={loading}
-                style={styles.demoButton}
-              />
-              <Button
-                title="Demo Doctor"
-                onPress={() => handleDemoLogin('doctor')}
-                variant="secondary"
-                disabled={loading}
-                style={styles.demoButton}
-              />
-            </View>
-          </View>
-
-          <Button
-            title="← Back to Role Selection"
-            onPress={() => router.replace('/role-selection')}
-            variant="outline"
-            style={styles.backButton}
-          />
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>
+          <Text style={[styles.footerText, { color: colors.textSecondary }]}>
             By continuing, you agree to our Terms of Service and Privacy Policy
           </Text>
         </View>
@@ -349,9 +290,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.xl,
   },
-  logo: {
-    fontSize: 48,
+  logoImage: {
+    width: 200,
+    height: 112,
     marginBottom: Spacing.sm,
+  },
+  roleIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+    borderWidth: 2,
+    borderColor: Colors.primary,
   },
   title: {
     fontSize: 28,
@@ -410,41 +363,17 @@ const styles = StyleSheet.create({
   secondaryButton: {
     marginBottom: Spacing.lg,
   },
-  divider: {
+  topBackButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: Spacing.lg,
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: Colors.border,
-  },
-  dividerText: {
-    paddingHorizontal: Spacing.md,
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  demoSection: {
-    marginBottom: Spacing.lg,
-  },
-  demoTitle: {
+  topBackText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  demoButtons: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  demoButton: {
-    flex: 1,
-  },
-  backButton: {
-    marginBottom: Spacing.lg,
+    fontWeight: '500',
+    color: Colors.primary,
   },
   footer: {
     marginTop: Spacing.xl,
