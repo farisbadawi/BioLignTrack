@@ -351,25 +351,21 @@ function DirectChatView() {
           <Text style={[styles.chatTitle, { color: colors.textPrimary }]}>
             {assignedDoctor ? assignedDoctor.name : 'Your Orthodontist'}
           </Text>
-          <View style={styles.statusIndicator}>
-            <View style={[styles.onlineIndicator, { backgroundColor: colors.success }]} />
-            <Text style={[styles.onlineText, { color: colors.success }]}>Online</Text>
-          </View>
+          <Text style={[styles.chatSubtitle, { color: colors.textSecondary }]}>
+            {assignedDoctor?.practice_name || 'Send a message anytime'}
+          </Text>
         </View>
       </View>
 
       {/* Context Card */}
       <Card style={styles.contextCard}>
-        <Text style={[styles.contextTitle, { color: colors.textPrimary }]}>Current Status</Text>
+        <Text style={[styles.contextTitle, { color: colors.textPrimary }]}>Your Treatment</Text>
         <View style={styles.contextInfo}>
           <Text style={[styles.contextItem, { color: colors.textSecondary, backgroundColor: colors.surface }]}>
-            Tray {patient?.current_tray} of {patient?.total_trays}
+            Tray {patient?.current_tray || 1} of {patient?.total_trays || '?'}
           </Text>
           <Text style={[styles.contextItem, { color: colors.textSecondary, backgroundColor: colors.surface }]}>
-            22h daily goal
-          </Text>
-          <Text style={[styles.contextItem, { color: colors.textSecondary, backgroundColor: colors.surface }]}>
-            Last fit check: Good
+            {patient?.target_hours_per_day || 22}h daily goal
           </Text>
         </View>
       </Card>
@@ -618,6 +614,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 2,
+  },
+  chatSubtitle: {
+    fontSize: 14,
   },
   statusIndicator: {
     flexDirection: 'row',

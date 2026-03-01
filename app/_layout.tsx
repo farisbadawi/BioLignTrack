@@ -29,37 +29,65 @@ function RootLayoutNav() {
   } = usePatientStore();
   const { isDark, colors } = useTheme();
 
-  // Initial setup with timeout
+  // Initial setup - fast and resilient
   useEffect(() => {
+    let didFinish = false;
+
+    const finishSetup = () => {
+      if (!didFinish) {
+        didFinish = true;
+        setIsReady(true);
+        // Safely hide splash screen (may error on hot reload, that's ok)
+        SplashScreen.hideAsync().catch(() => {});
+      }
+    };
+
+    // Hard timeout - app WILL load after 3 seconds no matter what
+    const hardTimeout = setTimeout(() => {
+      console.log('Hard timeout reached, forcing app to load');
+      finishSetup();
+    }, 3000);
+
     const setup = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Quick session check with its own timeout
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<null>((resolve) =>
+          setTimeout(() => {
+            console.log('Session check timed out, proceeding as logged out');
+            resolve(null);
+          }, 2000)
+        );
 
-        if (session?.user) {
+        const result = await Promise.race([sessionPromise, timeoutPromise]);
+
+        if (result && 'data' in result && result.data?.session?.user) {
           console.log('Found existing session, initializing...');
-          // Add timeout to prevent infinite loading
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Initialize timeout')), 10000)
-          );
+          // Quick initialize with timeout
           try {
-            await Promise.race([initialize(), timeoutPromise]);
-          } catch (timeoutError) {
+            await Promise.race([
+              initialize(),
+              new Promise((_, reject) => setTimeout(() => reject('timeout'), 2000))
+            ]);
+          } catch {
             console.log('Initialize timed out, continuing anyway...');
           }
         } else {
-          console.log('No existing session found');
+          console.log('No session found or check timed out');
           clearAuth();
         }
       } catch (error) {
-        console.error('Setup error:', error);
+        console.log('Setup error, proceeding as logged out:', error);
         clearAuth();
       } finally {
-        setIsReady(true);
-        SplashScreen.hideAsync();
+        clearTimeout(hardTimeout);
+        finishSetup();
       }
     };
 
     setup();
+
+    return () => clearTimeout(hardTimeout);
   }, []);
 
   // Handle initial routing
@@ -108,8 +136,8 @@ function RootLayoutNav() {
         backgroundColor: colors.surface,
       }}>
         <Image
-          source={require('@/assets/images/biolign-logo-app.png')}
-          style={{ width: 280, height: 220, marginBottom: 32 }}
+          source={require('@/assets/images/biolign-logo-transparent.png')}
+          style={{ width: 240, height: 140, marginBottom: 32 }}
           resizeMode="contain"
         />
         <ActivityIndicator size="large" color={colors.primary} />
@@ -123,6 +151,9 @@ function RootLayoutNav() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="role-selection" />
         <Stack.Screen name="auth" />
+        <Stack.Screen name="doctor-onboarding" />
+        <Stack.Screen name="onboarding" />
+        <Stack.Screen name="edit-practice" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="+not-found" />
       </Stack>

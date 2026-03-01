@@ -2,16 +2,64 @@ import React from 'react'
 import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview'
-import { X } from 'lucide-react-native'
+import { X, Calendar, AlertCircle } from 'lucide-react-native'
 import { router } from 'expo-router'
 import { useTheme } from '@/contexts/ThemeContext'
-import { Spacing } from '@/constants/colors'
-
-const CALENDLY_URL = 'https://calendly.com/smileelements-info/30min'
+import { Spacing, BorderRadius } from '@/constants/colors'
+import { usePatientStore } from '@/stores/patient-store'
+import { Card } from '@/components/Card'
 
 export default function BookAppointmentScreen() {
   const { colors } = useTheme()
+  const { assignedDoctor } = usePatientStore()
   const [loading, setLoading] = React.useState(true)
+
+  // Get Calendly URL from assigned doctor
+  const calendlyUrl = assignedDoctor?.calendly_url || null
+  const doctorName = assignedDoctor?.name || 'your orthodontist'
+  const practicePhone = assignedDoctor?.practice_phone || null
+
+  // If no Calendly URL, show a message
+  if (!calendlyUrl) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Book Appointment</Text>
+          <TouchableOpacity
+            style={[styles.closeButton, { backgroundColor: colors.surface }]}
+            onPress={() => router.back()}
+          >
+            <X size={24} color={colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.noCalendlyContainer}>
+          <Card style={styles.noCalendlyCard}>
+            <AlertCircle size={48} color={colors.warning} />
+            <Text style={[styles.noCalendlyTitle, { color: colors.textPrimary }]}>
+              Online Booking Not Available
+            </Text>
+            <Text style={[styles.noCalendlyText, { color: colors.textSecondary }]}>
+              {assignedDoctor
+                ? `${doctorName} hasn't set up online booking yet.`
+                : "You haven't linked to a doctor yet."
+              }
+            </Text>
+            {practicePhone && (
+              <Text style={[styles.noCalendlyText, { color: colors.textSecondary }]}>
+                Please call {practicePhone} to schedule an appointment.
+              </Text>
+            )}
+            {!assignedDoctor && (
+              <Text style={[styles.noCalendlyText, { color: colors.textSecondary }]}>
+                Add your doctor in Profile settings to enable booking.
+              </Text>
+            )}
+          </Card>
+        </View>
+      </SafeAreaView>
+    )
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -35,7 +83,7 @@ export default function BookAppointmentScreen() {
           </View>
         )}
         <WebView
-          source={{ uri: CALENDLY_URL }}
+          source={{ uri: calendlyUrl }}
           style={styles.webview}
           onLoadEnd={() => setLoading(false)}
           javaScriptEnabled={true}
@@ -90,5 +138,29 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: Spacing.md,
     fontSize: 14,
+  },
+  noCalendlyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  noCalendlyCard: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+  },
+  noCalendlyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+    textAlign: 'center',
+  },
+  noCalendlyText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
+    lineHeight: 20,
   },
 })

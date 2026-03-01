@@ -38,7 +38,9 @@ import {
   AlertTriangle,
   Phone,
   Smartphone,
+  Building2,
 } from 'lucide-react-native';
+import { router } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
@@ -787,6 +789,13 @@ export default function ProfileScreen() {
         {/* Practice Settings - Only for doctors */}
         {userRole === 'doctor' && (
           <ProfileSection title="Practice Settings">
+            <SettingRow
+              icon={Building2}
+              title="Edit Practice Info"
+              subtitle="Update your clinic details"
+              onPress={() => router.push('/edit-practice')}
+            />
+            <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
             <SettingRow
               icon={Download}
               title="Export Practice Data"

@@ -58,10 +58,20 @@ export default function AuthScreen() {
 
     setLoading(true)
 
+    // Helper to add timeout to async operations
+    const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error('Request timed out. Please check your connection and try again.')), ms)
+        )
+      ])
+    }
+
     try {
       let result
       if (isSignUp) {
-        result = await signUp(email, password, name, role, invitationCode)
+        result = await withTimeout(signUp(email, password, name, role, invitationCode), 15000)
 
         if (!result.error) {
           // If patient entered a doctor code, join that doctor
@@ -95,11 +105,11 @@ export default function AuthScreen() {
               {
                 text: 'OK',
                 onPress: () => {
-                  // Patients go to onboarding, doctors go to tabs
+                  // Patients go to patient onboarding, doctors go to practice setup
                   if (role === 'patient') {
                     router.replace('/onboarding')
                   } else {
-                    router.replace('/(tabs)')
+                    router.replace('/doctor-onboarding')
                   }
                 }
               }
@@ -113,7 +123,7 @@ export default function AuthScreen() {
           })
         }
       } else {
-        result = await signIn(email, password)
+        result = await withTimeout(signIn(email, password), 15000)
 
         if (!result.error) {
           router.replace('/(tabs)')
@@ -125,10 +135,10 @@ export default function AuthScreen() {
           })
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       showAlert({
         title: 'Error',
-        message: 'Something went wrong. Please try again.',
+        message: error?.message || 'Something went wrong. Please check your connection and try again.',
         type: 'error',
       })
     } finally {
@@ -164,7 +174,7 @@ export default function AuthScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Image
-            source={require('@/assets/images/biolign-logo.png')}
+            source={require('@/assets/images/biolign-logo-transparent.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />

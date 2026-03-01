@@ -36,7 +36,7 @@ export default function RoleSelectionScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Image
-            source={require('@/assets/images/biolign-logo.png')}
+            source={require('@/assets/images/biolign-logo-transparent.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />

@@ -61,6 +61,14 @@ interface UserSettings {
   show_daily_tip: boolean
 }
 
+interface PracticeInfo {
+  practice_name: string
+  practice_phone: string
+  practice_address: string
+  calendly_url: string
+  office_hours: string
+}
+
 interface ProgressPhoto {
   id: string
   patient_id: string
@@ -129,6 +137,9 @@ interface EnhancedPatientState {
   // Settings
   notificationSettings: NotificationSettings | null
   userSettings: UserSettings | null
+
+  // Practice info (for doctors)
+  practiceInfo: PracticeInfo | null
 
   // Auth state
   isAuthenticated: boolean
@@ -225,6 +236,11 @@ interface EnhancedPatientState {
   updateUserSettings: (settings: Partial<UserSettings>) => Promise<{ success: boolean; error?: string }>
   initializeUserSettings: () => Promise<void>
 
+  // Practice info actions (for doctors)
+  loadPracticeInfo: () => Promise<void>
+  savePracticeInfo: (info: Partial<PracticeInfo>) => Promise<{ success: boolean; error?: string }>
+  hasPracticeInfo: () => boolean
+
   // =====================================================
   // UTILITY FUNCTIONS
   // =====================================================
@@ -261,6 +277,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   patientNotes: [],
   notificationSettings: null,
   userSettings: null,
+  practiceInfo: null,
   isAuthenticated: false,
 
   // =====================================================
@@ -333,6 +350,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         } else if (profile.role === 'doctor') {
           await get().loadAssignedPatients()
           await get().loadInvitations()
+          await get().loadPracticeInfo()
         }
 
         // Load common data
@@ -1210,7 +1228,10 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         .from('doctor_patients')
         .select(`
           doctor_id,
-          profiles!doctor_patients_doctor_id_fkey (id, name, email, role, phone)
+          profiles!doctor_patients_doctor_id_fkey (
+            id, name, email, role, phone,
+            practice_name, practice_phone, practice_address, calendly_url, office_hours
+          )
         `)
         .eq('patient_id', profile.id)
         .eq('status', 'active')
@@ -1950,6 +1971,84 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     } catch (error) {
       console.error('Initialize user settings error:', error)
     }
+  },
+
+  // =====================================================
+  // PRACTICE INFO METHODS (FOR DOCTORS)
+  // =====================================================
+
+  loadPracticeInfo: async () => {
+    const { profile } = get()
+    if (!profile || profile.role !== 'doctor') return
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('practice_name, practice_phone, practice_address, calendly_url, office_hours')
+        .eq('id', profile.id)
+        .single()
+
+      if (data) {
+        set({
+          practiceInfo: {
+            practice_name: data.practice_name || '',
+            practice_phone: data.practice_phone || '',
+            practice_address: data.practice_address || '',
+            calendly_url: data.calendly_url || '',
+            office_hours: data.office_hours || '',
+          }
+        })
+      }
+    } catch (error) {
+      console.error('Load practice info error:', error)
+    }
+  },
+
+  savePracticeInfo: async (info: Partial<PracticeInfo>) => {
+    const { profile } = get()
+    if (!profile || profile.role !== 'doctor') {
+      return { success: false, error: 'Not authorized' }
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          practice_name: info.practice_name,
+          practice_phone: info.practice_phone,
+          practice_address: info.practice_address,
+          calendly_url: info.calendly_url,
+          office_hours: info.office_hours,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', profile.id)
+
+      if (error) {
+        console.error('Save practice info error:', error)
+        return { success: false, error: error.message }
+      }
+
+      // Update local state
+      set({
+        practiceInfo: {
+          practice_name: info.practice_name || '',
+          practice_phone: info.practice_phone || '',
+          practice_address: info.practice_address || '',
+          calendly_url: info.calendly_url || '',
+          office_hours: info.office_hours || '',
+        }
+      })
+
+      return { success: true }
+    } catch (error: any) {
+      console.error('Save practice info exception:', error)
+      return { success: false, error: error.message }
+    }
+  },
+
+  hasPracticeInfo: () => {
+    const { practiceInfo } = get()
+    return !!(practiceInfo?.practice_name && practiceInfo?.practice_phone)
   },
 
   // =====================================================

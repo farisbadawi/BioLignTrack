@@ -18,8 +18,13 @@ interface AppointmentData {
 }
 
 export default function AppointmentsScreen() {
-  const { appointments, userRole } = usePatientStore();
+  const { appointments, userRole, assignedDoctor } = usePatientStore();
   const { colors } = useTheme();
+
+  // Get doctor's practice info (for patients)
+  const practicePhone = assignedDoctor?.practice_phone || null;
+  const practiceAddress = assignedDoctor?.practice_address || null;
+  const practiceName = assignedDoctor?.practice_name || 'Your Orthodontist';
 
   // Filter and sort appointments
   const upcomingAppointments = (appointments as unknown as AppointmentData[])
@@ -99,15 +104,21 @@ export default function AppointmentsScreen() {
       </View>
 
       <View style={[styles.appointmentActions, { borderTopColor: colors.border }]}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => {
-          Linking.openURL('tel:+1234567890');
-        }}>
-          <Phone size={16} color={colors.primary} />
-          <Text style={[styles.actionText, { color: colors.primary }]}>Call Office</Text>
-        </TouchableOpacity>
+        {practicePhone && (
+          <TouchableOpacity style={styles.actionButton} onPress={() => {
+            Linking.openURL(`tel:${practicePhone.replace(/[^0-9+]/g, '')}`);
+          }}>
+            <Phone size={16} color={colors.primary} />
+            <Text style={[styles.actionText, { color: colors.primary }]}>Call Office</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.actionButton} onPress={() => {
-          Alert.alert('Reschedule', 'Please call the office to reschedule your appointment.');
+          if (practicePhone) {
+            Alert.alert('Reschedule', `Please call ${practiceName} at ${practicePhone} to reschedule your appointment.`);
+          } else {
+            Alert.alert('Reschedule', 'Please contact your orthodontist to reschedule your appointment.');
+          }
         }}>
           <Calendar size={16} color={colors.primary} />
           <Text style={[styles.actionText, { color: colors.primary }]}>Reschedule</Text>
@@ -196,28 +207,45 @@ export default function AppointmentsScreen() {
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Need Help?</Text>
 
           <View style={styles.quickActions}>
-            <TouchableOpacity style={styles.quickAction} onPress={() => {
-              Linking.openURL('tel:+1234567890');
-            }}>
-              <Phone size={20} color={colors.primary} />
-              <Text style={[styles.quickActionText, { color: colors.primary }]}>Call Office</Text>
-            </TouchableOpacity>
+            {practicePhone ? (
+              <TouchableOpacity style={styles.quickAction} onPress={() => {
+                Linking.openURL(`tel:${practicePhone.replace(/[^0-9+]/g, '')}`);
+              }}>
+                <Phone size={20} color={colors.primary} />
+                <Text style={[styles.quickActionText, { color: colors.primary }]}>Call Office</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.quickAction}>
+                <Phone size={20} color={colors.textSecondary} />
+                <Text style={[styles.quickActionText, { color: colors.textSecondary }]}>No Phone</Text>
+              </View>
+            )}
 
             <TouchableOpacity style={styles.quickAction} onPress={() => {
-              Alert.alert('Schedule', 'Please call the office to schedule a new appointment.');
+              if (practicePhone) {
+                Alert.alert('Schedule', `Please call ${practiceName} at ${practicePhone} to schedule a new appointment.`);
+              } else {
+                Alert.alert('Schedule', 'Please contact your orthodontist to schedule a new appointment.');
+              }
             }}>
               <Calendar size={20} color={colors.primary} />
               <Text style={[styles.quickActionText, { color: colors.primary }]}>Schedule</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.quickAction} onPress={() => {
-              const location = 'BioLign Orthodontics, 123 Main St';
-              const encodedLocation = encodeURIComponent(location);
-              Linking.openURL(`https://maps.google.com/?q=${encodedLocation}`);
-            }}>
-              <MapPin size={20} color={colors.primary} />
-              <Text style={[styles.quickActionText, { color: colors.primary }]}>Directions</Text>
-            </TouchableOpacity>
+            {practiceAddress ? (
+              <TouchableOpacity style={styles.quickAction} onPress={() => {
+                const encodedLocation = encodeURIComponent(practiceAddress);
+                Linking.openURL(`https://maps.google.com/?q=${encodedLocation}`);
+              }}>
+                <MapPin size={20} color={colors.primary} />
+                <Text style={[styles.quickActionText, { color: colors.primary }]}>Directions</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.quickAction}>
+                <MapPin size={20} color={colors.textSecondary} />
+                <Text style={[styles.quickActionText, { color: colors.textSecondary }]}>No Address</Text>
+              </View>
+            )}
           </View>
         </Card>
       </ScrollView>

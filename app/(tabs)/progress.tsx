@@ -156,11 +156,14 @@ export default function ProgressScreen() {
 
   const insights = generateInsights();
 
+  // Get today's date string for comparison
+  const todayStr = new Date().toISOString().split('T')[0];
+
   const BarChart = () => (
     <View style={styles.chartContainer}>
       <View style={styles.chartHeader}>
         <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>Daily Wear Time</Text>
-        <Text style={[styles.chartSubtitle, { color: colors.textSecondary }]}>Last 7 days</Text>
+        <Text style={[styles.chartSubtitle, { color: colors.textSecondary }]}>This week</Text>
       </View>
 
       <View style={styles.chart}>
@@ -186,7 +189,7 @@ export default function ProgressScreen() {
           <View style={styles.bars}>
             {weeklyData.map((data, index) => {
               const barHeight = (data.hours / maxHours) * 100;
-              const isToday = index === weeklyData.length - 1;
+              const isToday = data.date === todayStr;
               const meetsTarget = data.hours >= patient.target_hours_per_day;
 
               return (
