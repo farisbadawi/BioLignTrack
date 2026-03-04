@@ -1,87 +1,306 @@
 // app/(tabs)/progress.tsx - COMPLETE FILE WITH REAL DATA
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Dimensions, Animated, PanResponder } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { TrendingUp, Calendar, Clock, Award } from 'lucide-react-native';
-import { Colors, Spacing } from '@/constants/colors';
+import { TrendingUp, Calendar, Clock, Award, AlertCircle, UserPlus, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { TouchableOpacity } from 'react-native';
+import { router } from 'expo-router';
+import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { useTheme } from '@/contexts/ThemeContext';
 
+const SCREEN_WIDTH = Dimensions.get('window').width;
+
 export default function ProgressScreen() {
-  const { patient, getWeeklyProgress, dailyLogs, trayChanges } = usePatientStore();
+  const { patient, dailyLogs, trayChanges, assignedDoctor, currentSession, todayWearSeconds, getComplianceStats } = usePatientStore();
   const { colors } = useTheme();
-  const weeklyData = getWeeklyProgress();
+  const [, setTick] = useState(0);
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, -1 = last week, etc.
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  // Update chart every 30 seconds while timer is running
+  useEffect(() => {
+    if (!currentSession) return;
+
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [currentSession]);
+
+  // Get weekly data for a specific week offset
+  const getWeekData = (offset: number) => {
+    const days = [];
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const treatmentStartDate = patient?.treatment_start_date;
+
+    // Calculate current session elapsed time if timer is running (in seconds)
+    let currentSessionSeconds = 0;
+    if (currentSession?.startTime && offset === 0) {
+      currentSessionSeconds = Math.floor((new Date().getTime() - currentSession.startTime.getTime()) / 1000);
+    }
+
+    // Get Monday of the target week
+    const currentDayOfWeek = today.getDay();
+    const daysSinceMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - daysSinceMonday + (offset * 7));
+
+    // Generate days Monday through Sunday
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+      const dateStr = date.toISOString().split('T')[0];
+
+      // Only count days on or after treatment_start_date
+      const isBeforeTreatment = treatmentStartDate && dateStr < treatmentStartDate;
+      const isFuture = dateStr > todayStr;
+
+      const log = dailyLogs.find((l: any) => l.date === dateStr);
+      let hours = 0;
+
+      if (!isBeforeTreatment && !isFuture) {
+        if (dateStr === todayStr && offset === 0) {
+          // Use seconds for today: todayWearSeconds + current session
+          hours = ((todayWearSeconds || 0) + currentSessionSeconds) / 3600;
+        } else if (log) {
+          // Use getLogSeconds for historical days
+          const logSeconds = log.wear_seconds != null ? log.wear_seconds : (log.wear_minutes || 0) * 60;
+          hours = logSeconds / 3600;
+        }
+      }
+
+      days.push({
+        date: dateStr,
+        hours: Math.round(hours * 10) / 10,
+        isFuture,
+      });
+    }
+    return days;
+  };
+
+  const weeklyData = getWeekData(weekOffset);
+
+  // Get week label (e.g., "This Week", "Last Week", "Feb 12 - 18")
+  const getWeekLabel = (offset: number) => {
+    if (offset === 0) return 'This Week';
+    if (offset === -1) return 'Last Week';
+
+    const today = new Date();
+    const currentDayOfWeek = today.getDay();
+    const daysSinceMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - daysSinceMonday + (offset * 7));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[monday.getMonth()]} ${monday.getDate()} - ${sunday.getDate()}`;
+  };
+
+  // Swipe handlers
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 20;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        translateX.setValue(gestureState.dx);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx > 50) {
+          // Swiped right - go to previous week
+          setWeekOffset(prev => prev - 1);
+        } else if (gestureState.dx < -50 && weekOffset < 0) {
+          // Swiped left - go to next week (but not beyond current week)
+          setWeekOffset(prev => prev + 1);
+        }
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      },
+    })
+  ).current;
+
+  const goToPreviousWeek = () => setWeekOffset(prev => prev - 1);
+  const goToNextWeek = () => weekOffset < 0 && setWeekOffset(prev => prev + 1);
 
   if (!patient) return null;
 
+  // Check if treatment has started
+  const treatmentStarted = !!assignedDoctor && !!patient.treatment_start_date;
+
+  // Helper to get seconds from log entry (uses wear_seconds if available, otherwise wear_minutes * 60)
+  const getLogSeconds = (log: any) => {
+    if (log.wear_seconds != null) return log.wear_seconds;
+    return (log.wear_minutes || 0) * 60;
+  };
+
   // Calculate real statistics from data
   const calculateStats = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const targetSeconds = patient.target_hours_per_day * 3600;
 
-    // Weekly average
-    const weeklyLogs = dailyLogs.filter(log => log.date >= oneWeekAgo && log.date <= today);
-    const weeklyTotal = weeklyLogs.reduce((sum, log) => sum + log.wear_minutes, 0);
-    const weeklyAverage = weeklyLogs.length > 0 ? weeklyTotal / weeklyLogs.length / 60 : 0;
+    // Find the first day with logged data - this is when tracking actually started
+    const sortedLogs = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date));
+    const firstLogDate = sortedLogs.length > 0 ? sortedLogs[0].date : todayStr;
 
-    // Current streak (consecutive days meeting target)
+    // Calculate days since first log (actual tracking period)
+    const firstLogDateObj = new Date(firstLogDate);
+    const daysSinceFirstLog = Math.max(1, Math.floor((today.getTime() - firstLogDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    // Weekly stats - from first log or last 7 days, whichever is later
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today = 7 days
+    const weekStart = firstLogDate > sevenDaysAgo.toISOString().split('T')[0] ? firstLogDate : sevenDaysAgo.toISOString().split('T')[0];
+    const weekStartDate = new Date(weekStart);
+    const daysInWeek = Math.max(1, Math.floor((today.getTime() - weekStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    // Sum all logged seconds in the week period
+    const weeklyLogs = dailyLogs.filter(log => log.date >= weekStart && log.date <= todayStr);
+    const weeklyTotalSeconds = weeklyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0);
+    // Divide by ALL days in the period (not just logged days) - result in hours
+    const weeklyAverage = weeklyTotalSeconds / daysInWeek / 3600;
+
+    // Use 50% of target as threshold (consistent with tray page "days worn")
+    const minimumSecondsForDay = targetSeconds * 0.5;
+
+    // Current streak - check each CALENDAR day going backwards from yesterday
+    // (today isn't over yet, so we start from yesterday)
     let currentStreak = 0;
-    const targetMinutes = patient.target_hours_per_day * 60;
-    const sortedLogs = [...dailyLogs].sort((a, b) => b.date.localeCompare(a.date));
+    const checkDate = new Date(today);
+    checkDate.setDate(checkDate.getDate() - 1); // Start from yesterday
 
-    for (const log of sortedLogs) {
-      if (log.wear_minutes >= targetMinutes) {
+    while (true) {
+      const dateStr = checkDate.toISOString().split('T')[0];
+      const log = dailyLogs.find(l => l.date === dateStr);
+
+      if (log && getLogSeconds(log) >= minimumSecondsForDay) {
         currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1); // Go back one more day
       } else {
-        break;
+        break; // No qualifying log for this day - streak ends
       }
     }
 
-    // On-time tray changes (changes made within recommended timeframe)
+    // Best streak - check consecutive calendar days
+    let bestStreak = 0;
+    let tempStreak = 0;
+    const logsAscending = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date));
+
+    if (logsAscending.length > 0) {
+      let prevDate: Date | null = null;
+      for (const log of logsAscending) {
+        const logDate = new Date(log.date);
+
+        if (getLogSeconds(log) >= minimumSecondsForDay) {
+          // Check if this is consecutive with previous qualifying day
+          if (prevDate) {
+            const diffDays = Math.round((logDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays === 1) {
+              tempStreak++;
+            } else {
+              tempStreak = 1; // Reset streak, start new one
+            }
+          } else {
+            tempStreak = 1; // First qualifying day
+          }
+          prevDate = logDate;
+          if (tempStreak > bestStreak) {
+            bestStreak = tempStreak;
+          }
+        } else {
+          tempStreak = 0;
+          prevDate = null;
+        }
+      }
+    }
+
+    // On-time tray changes
     const sortedTrayChanges = [...trayChanges].sort((a, b) =>
       new Date(a.date_changed).getTime() - new Date(b.date_changed).getTime()
     );
-
     let onTimeChanges = 0;
     for (let i = 1; i < sortedTrayChanges.length; i++) {
       const prevChange = new Date(sortedTrayChanges[i - 1].date_changed);
       const currentChange = new Date(sortedTrayChanges[i].date_changed);
       const daysBetween = (currentChange.getTime() - prevChange.getTime()) / (1000 * 60 * 60 * 24);
-
-      // Assuming 14 days is the recommended time between changes
       if (daysBetween >= 12 && daysBetween <= 16) {
         onTimeChanges++;
       }
     }
 
-    // Monthly statistics
-    const monthlyLogs = dailyLogs.filter(log => log.date >= oneMonthAgo && log.date <= today);
-    const monthlyTotal = monthlyLogs.reduce((sum, log) => sum + log.wear_minutes, 0);
-    const monthlyAverage = monthlyLogs.length > 0 ? monthlyTotal / monthlyLogs.length / 60 : 0;
+    // Weighted compliance from FIRST LOG DATE (not treatment_start_date)
+    // This way compliance is based on when user actually started tracking
+    // Each day gets a score: (hours worn / target hours), capped at 100%
+    // Overall compliance = average of all daily scores
 
-    // Compliance rate (percentage of days meeting target)
-    const daysMetTarget = monthlyLogs.filter(log => log.wear_minutes >= targetMinutes).length;
-    const complianceRate = monthlyLogs.length > 0 ? (daysMetTarget / monthlyLogs.length) * 100 : 0;
+    let complianceRate = 0;
+    let daysInTreatment = daysSinceFirstLog;
+
+    if (sortedLogs.length > 0) {
+      // Calculate weighted compliance for each day from first log
+      let totalComplianceScore = 0;
+
+      for (let i = 0; i < daysInTreatment; i++) {
+        const checkDate = new Date(firstLogDateObj);
+        checkDate.setDate(firstLogDateObj.getDate() + i);
+        const checkDateStr = checkDate.toISOString().split('T')[0];
+
+        // Find log for this date
+        const dayLog = dailyLogs.find(log => log.date === checkDateStr);
+        const hoursWorn = dayLog ? getLogSeconds(dayLog) / 3600 : 0;
+
+        // Daily score: hours worn / target, capped at 100%
+        const dailyScore = Math.min(hoursWorn / patient.target_hours_per_day, 1);
+        totalComplianceScore += dailyScore;
+      }
+
+      // Average across all days
+      complianceRate = (totalComplianceScore / daysInTreatment) * 100;
+    }
+
+    const daysTracked = dailyLogs.filter(log => getLogSeconds(log) > 0).length;
+
+    // Monthly average - from first log or last 30 days, whichever is later
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 29); // -29 to include today = 30 days
+    const monthStart = firstLogDate > thirtyDaysAgo.toISOString().split('T')[0] ? firstLogDate : thirtyDaysAgo.toISOString().split('T')[0];
+    const monthStartDate = new Date(monthStart);
+    const daysInMonth = Math.max(1, Math.floor((today.getTime() - monthStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    // Sum all logged seconds in the month period
+    const monthlyLogs = dailyLogs.filter(log => log.date >= monthStart && log.date <= todayStr);
+    const monthlyTotalSeconds = monthlyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0);
+    // Divide by ALL days in the period (not just logged days) - result in hours
+    const monthlyAverage = monthlyTotalSeconds / daysInMonth / 3600;
 
     // Trays completed this month
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
     const monthlyTrayChanges = trayChanges.filter(change =>
-      change.date_changed >= oneMonthAgo && change.date_changed <= today
+      change.date_changed >= thirtyDaysAgoStr && change.date_changed <= todayStr
     );
 
     return {
       weeklyAverage,
       currentStreak,
+      bestStreak,
       onTimeChanges,
       monthlyAverage,
       complianceRate,
-      traysCompletedThisMonth: monthlyTrayChanges.length
+      traysCompletedThisMonth: monthlyTrayChanges.length,
+      daysInTreatment
     };
   };
 
   const stats = calculateStats();
-  const maxHours = Math.max(...weeklyData.map(d => d.hours), patient.target_hours_per_day);
+  const maxHours = 24; // Always show 24h as max on Y-axis
+  const chartScale = 0.92; // Scale bars to 92% so there's visual headroom at top
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -143,8 +362,23 @@ export default function ProgressScreen() {
       });
     }
 
-    // Treatment progress
-    const progressPercentage = Math.round((patient.current_tray / patient.total_trays) * 100);
+    // Treatment progress - use incremental calculation based on qualifying days
+    const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
+    const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+    const minMinutesForDay = targetHours * 60 * 0.5; // 50% of target
+    const recommendedDays = 14;
+
+    const qualifyingDaysWorn = trayStartDate
+      ? dailyLogs.filter(log => {
+          if (log.date < trayStartDate) return false;
+          return (log.wear_minutes || 0) >= minMinutesForDay;
+        }).length
+      : 0;
+
+    const completedAligners = patient.current_tray - 1;
+    const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
+    const progressPercentage = Math.round(((completedAligners + currentAlignerProgress) / patient.total_trays) * 100);
+
     insights.push({
       type: 'primary',
       title: 'Treatment progress',
@@ -163,10 +397,25 @@ export default function ProgressScreen() {
     <View style={styles.chartContainer}>
       <View style={styles.chartHeader}>
         <Text style={[styles.chartTitle, { color: colors.textPrimary }]}>Daily Wear Time</Text>
-        <Text style={[styles.chartSubtitle, { color: colors.textSecondary }]}>This week</Text>
+        <View style={styles.weekNavigation}>
+          <TouchableOpacity onPress={goToPreviousWeek} style={styles.weekArrow}>
+            <ChevronLeft size={20} color={colors.primary} />
+          </TouchableOpacity>
+          <Text style={[styles.chartSubtitle, { color: colors.textSecondary }]}>{getWeekLabel(weekOffset)}</Text>
+          <TouchableOpacity
+            onPress={goToNextWeek}
+            style={[styles.weekArrow, weekOffset >= 0 && styles.weekArrowDisabled]}
+            disabled={weekOffset >= 0}
+          >
+            <ChevronRight size={20} color={weekOffset >= 0 ? colors.border : colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <View style={styles.chart}>
+      <Animated.View
+        style={[styles.chart, { transform: [{ translateX }] }]}
+        {...panResponder.panHandlers}
+      >
         <View style={styles.yAxis}>
           <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours)}h</Text>
           <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours * 0.75)}h</Text>
@@ -175,50 +424,76 @@ export default function ProgressScreen() {
         </View>
 
         <View style={styles.chartArea}>
+          {/* Grid lines at 6h, 12h, 18h, 24h */}
+          <View style={[styles.gridLine, { bottom: `${25 * chartScale}%`, backgroundColor: colors.border }]} />
+          <View style={[styles.gridLine, { bottom: `${50 * chartScale}%`, backgroundColor: colors.border }]} />
+          <View style={[styles.gridLine, { bottom: `${75 * chartScale}%`, backgroundColor: colors.border }]} />
+          <View style={[styles.gridLine, { bottom: `${100 * chartScale}%`, backgroundColor: colors.border }]} />
+
           {/* Target line */}
           <View
             style={[
               styles.targetLine,
               {
-                bottom: `${(patient.target_hours_per_day / maxHours) * 100}%`,
+                bottom: `${(patient.target_hours_per_day / maxHours) * 100 * chartScale}%`,
                 backgroundColor: colors.primary,
               }
             ]}
           />
 
-          <View style={styles.bars}>
-            {weeklyData.map((data, index) => {
-              const barHeight = (data.hours / maxHours) * 100;
-              const isToday = data.date === todayStr;
+          {/* Bars - using absolute positioning like target line for accurate alignment */}
+          <View style={styles.barsAbsolute}>
+            {weeklyData.map((data) => {
+              const barHeight = (data.hours / maxHours) * 100 * chartScale;
+              const isToday = data.date === todayStr && weekOffset === 0;
               const meetsTarget = data.hours >= patient.target_hours_per_day;
 
+              // Only show visual highlight for today if there are actual hours logged
+              const showTodayHighlight = isToday && data.hours > 0;
+
               return (
-                <View key={data.date} style={styles.barContainer}>
-                  <View style={styles.barWrapper}>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          height: `${barHeight}%`,
-                          backgroundColor: meetsTarget ? colors.success :
-                                         data.hours >= patient.target_hours_per_day * 0.8 ? colors.warning :
-                                         colors.error,
-                        },
-                        isToday && [styles.todayBar, { borderColor: colors.primary }],
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.barLabel, { color: colors.textSecondary }, isToday && { color: colors.primary, fontWeight: '600' }]}>
-                    {formatDate(data.date)}
-                  </Text>
-                  <Text style={[styles.barValue, { color: colors.textSecondary }]}>
-                    {data.hours.toFixed(1)}h
-                  </Text>
+                <View key={data.date} style={styles.barColumn}>
+                  <View
+                    style={[
+                      styles.barAbsolute,
+                      {
+                        height: `${barHeight}%`,
+                        backgroundColor: data.hours === 0 ? 'transparent' :
+                                       meetsTarget ? colors.success :
+                                       data.hours >= patient.target_hours_per_day * 0.8 ? colors.warning :
+                                       colors.error,
+                      },
+                      showTodayHighlight && [styles.todayBar, { borderColor: colors.primary }],
+                    ]}
+                  />
                 </View>
               );
             })}
           </View>
         </View>
+      </Animated.View>
+
+      {/* Labels row - separate from chart area */}
+      <View style={styles.labelsRow}>
+        <View style={styles.yAxisSpacer} />
+        {weeklyData.map((data) => {
+          const isToday = data.date === todayStr && weekOffset === 0;
+          const isFuture = data.isFuture;
+          return (
+            <View key={data.date} style={styles.labelColumn}>
+              <Text style={[
+                styles.barLabel,
+                { color: isFuture ? colors.border : colors.textSecondary },
+                isToday && { color: colors.primary, fontWeight: '600' }
+              ]}>
+                {formatDate(data.date)}
+              </Text>
+              <Text style={[styles.barValue, { color: isFuture ? colors.border : colors.textSecondary }]}>
+                {data.hours.toFixed(1)}h
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       <View style={styles.chartLegend}>
@@ -248,6 +523,28 @@ export default function ProgressScreen() {
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Track your orthodontic journey</Text>
         </View>
 
+        {/* Treatment Not Started Message */}
+        {!treatmentStarted && (
+          <Card style={styles.notStartedCard}>
+            <AlertCircle size={48} color={colors.warning} />
+            <Text style={[styles.notStartedTitle, { color: colors.textPrimary }]}>
+              Treatment Not Started
+            </Text>
+            <Text style={[styles.notStartedText, { color: colors.textSecondary }]}>
+              Link to your doctor to start tracking your progress and compliance.
+            </Text>
+            <TouchableOpacity
+              style={[styles.linkDoctorButton, { backgroundColor: colors.primary }]}
+              onPress={() => router.push('/(tabs)/profile')}
+            >
+              <UserPlus size={18} color={colors.background} />
+              <Text style={[styles.linkDoctorText, { color: colors.background }]}>
+                Add Doctor Code
+              </Text>
+            </TouchableOpacity>
+          </Card>
+        )}
+
         {/* Stats Overview */}
         <View style={styles.statsGrid}>
           <Card style={styles.statCard}>
@@ -255,7 +552,7 @@ export default function ProgressScreen() {
               <TrendingUp size={24} color={colors.primary} />
             </View>
             <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.weeklyAverage.toFixed(1)}h</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>7-day average</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>7-Day Avg</Text>
           </Card>
 
           <Card style={styles.statCard}>
@@ -264,6 +561,7 @@ export default function ProgressScreen() {
             </View>
             <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.currentStreak}</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Day streak</Text>
+            <Text style={[styles.statSublabel, { color: colors.textSecondary }]}>Best: {stats.bestStreak}</Text>
           </Card>
 
           <Card style={styles.statCard}>
@@ -310,25 +608,30 @@ export default function ProgressScreen() {
 
         {/* Monthly Summary */}
         <Card style={styles.summaryCard}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>This Month</Text>
+          <View style={styles.summaryHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Treatment Progress</Text>
+            <Text style={[styles.summarySubtitle, { color: colors.textSecondary }]}>
+              {stats.daysInTreatment} day{stats.daysInTreatment !== 1 ? 's' : ''} since first log
+            </Text>
+          </View>
 
           <View style={styles.summaryStats}>
             <View style={styles.summaryItem}>
               <Text style={[styles.summaryValue, { color: colors.primary }]}>{Math.round(stats.complianceRate)}%</Text>
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Compliance Rate</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Compliance</Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={[styles.summaryValue, { color: colors.primary }]}>{stats.monthlyAverage.toFixed(1)}h</Text>
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Daily Average</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>30-Day Avg</Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={[styles.summaryValue, { color: colors.primary }]}>{stats.traysCompletedThisMonth}</Text>
-              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Trays Completed</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Tray Changes</Text>
             </View>
           </View>
 
           <View style={styles.summaryProgress}>
-            <Text style={[styles.summaryProgressLabel, { color: colors.textPrimary }]}>Monthly Goal Progress</Text>
+            <Text style={[styles.summaryProgressLabel, { color: colors.textPrimary }]}>Overall Compliance</Text>
             <View style={[styles.summaryProgressBar, { backgroundColor: colors.border }]}>
               <View style={[
                 styles.summaryProgressFill,
@@ -336,9 +639,13 @@ export default function ProgressScreen() {
               ]} />
             </View>
             <Text style={[styles.summaryProgressText, { color: colors.textSecondary }]}>
-              {Math.round(stats.complianceRate)}% of target hours
+              Avg {Math.round(stats.complianceRate)}% of {patient.target_hours_per_day}h daily target
             </Text>
           </View>
+
+          <Text style={[styles.trackingNote, { color: colors.textSecondary }]}>
+            Averages are rolling (last 7 or 30 days), or since your first log if you started more recently. Days without logs count as 0 hours.
+          </Text>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -366,6 +673,36 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: Colors.textSecondary,
+  },
+  notStartedCard: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  notStartedTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  notStartedText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
+  },
+  linkDoctorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+  },
+  linkDoctorText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -397,6 +734,13 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
+  statSublabel: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
   chartCard: {
     marginBottom: Spacing.md,
   },
@@ -405,6 +749,19 @@ const styles = StyleSheet.create({
   },
   chartHeader: {
     marginBottom: Spacing.md,
+  },
+  weekNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  weekArrow: {
+    padding: Spacing.xs,
+  },
+  weekArrowDisabled: {
+    opacity: 0.3,
   },
   chartTitle: {
     fontSize: 18,
@@ -439,38 +796,56 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 1,
+    height: 2,
     backgroundColor: Colors.primary,
     zIndex: 1,
   },
-  bars: {
+  gridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    opacity: 0.3,
+  },
+  barsAbsolute: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    top: 0,
     flexDirection: 'row',
-    height: '100%',
     alignItems: 'flex-end',
     gap: 2,
   },
-  barContainer: {
+  barColumn: {
     flex: 1,
+    height: '100%',
     alignItems: 'center',
-  },
-  barWrapper: {
-    flex: 1,
-    width: '80%',
     justifyContent: 'flex-end',
   },
-  bar: {
-    width: '100%',
+  barAbsolute: {
+    width: '80%',
     borderRadius: 2,
-    minHeight: 2,
   },
   todayBar: {
     borderWidth: 2,
     borderColor: Colors.primary,
   },
+  labelsRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.xs,
+    paddingLeft: 0,
+  },
+  yAxisSpacer: {
+    width: 30,
+  },
+  labelColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
   barLabel: {
     fontSize: 12,
     color: Colors.textSecondary,
-    marginTop: Spacing.xs,
   },
   todayLabel: {
     color: Colors.primary,
@@ -485,6 +860,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: Spacing.md,
+    marginTop: Spacing.md,
   },
   legendItem: {
     flexDirection: 'row',
@@ -545,6 +921,13 @@ const styles = StyleSheet.create({
   summaryCard: {
     marginBottom: Spacing.xl,
   },
+  summaryHeader: {
+    marginBottom: Spacing.md,
+  },
+  summarySubtitle: {
+    fontSize: 12,
+    marginTop: Spacing.xs,
+  },
   summaryStats: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -588,5 +971,12 @@ const styles = StyleSheet.create({
   summaryProgressText: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  trackingNote: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: Spacing.md,
+    lineHeight: 16,
   },
 });

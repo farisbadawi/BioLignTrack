@@ -11,6 +11,7 @@ import {
   Modal,
   Image,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -169,6 +170,7 @@ export default function PatientDetailScreen() {
 
   const [patient, setPatient] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'history' | 'notes'>('overview');
@@ -190,6 +192,20 @@ export default function PatientDetailScreen() {
       console.error('Failed to load patient:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    if (!id) return;
+    setRefreshing(true);
+    try {
+      const patientData = await getPatientById(id);
+      setPatient(patientData);
+      await loadPatientNotes(id);
+    } catch (error) {
+      console.error('Failed to refresh patient:', error);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -255,23 +271,80 @@ export default function PatientDetailScreen() {
   }
 
   const patientData = patient.patientData || {};
-  const progressPercent = patientData.total_trays
-    ? Math.round((patientData.current_tray / patientData.total_trays) * 100)
-    : 0;
-
-  // Calculate compliance
   const recentLogs = patient.dailyLogs || [];
-  const targetMinutes = (patientData.target_hours_per_day || 22) * 60;
-  const weeklyAvg = recentLogs.slice(0, 7).length > 0
-    ? recentLogs.slice(0, 7).reduce((sum: number, log: any) => sum + (log.wear_minutes || 0), 0) / recentLogs.slice(0, 7).length
-    : 0;
+  const patientTrayChanges = patient.trayChanges || [];
+  const targetSeconds = (patientData.target_hours_per_day || 22) * 3600;
+
+  // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+  const getLogSeconds = (log: any) => {
+    if (log.wear_seconds != null) return log.wear_seconds;
+    return (log.wear_minutes || 0) * 60;
+  };
+
+  // Calculate incremental progress based on qualifying days
+  const calculateProgressPercent = () => {
+    if (!patientData.total_trays) return 0;
+    const currentTrayChange = patientTrayChanges.find((change: any) => change.tray_number === patientData.current_tray);
+    const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+    const minimumSecondsForDay = targetSeconds * 0.5;
+    const recommendedDays = 14;
+
+    const qualifyingDaysWorn = trayStartDate
+      ? recentLogs.filter((log: any) => {
+          if (log.date < trayStartDate) return false;
+          return getLogSeconds(log) >= minimumSecondsForDay;
+        }).length
+      : 0;
+
+    const completedAligners = (patientData.current_tray || 1) - 1;
+    const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
+    return Math.round(((completedAligners + currentAlignerProgress) / patientData.total_trays) * 100);
+  };
+
+  const progressPercent = calculateProgressPercent();
+
+  // Calculate compliance - based on all days since first log
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Find first log date
+  const sortedLogs = [...recentLogs].sort((a: any, b: any) => a.date.localeCompare(b.date));
+  const firstLogDate = sortedLogs.length > 0 ? sortedLogs[0].date : null;
+
+  let weeklyAvg = 0;
+  let daysInPeriod = 1;
+
+  if (firstLogDate) {
+    const firstLogDateObj = new Date(firstLogDate);
+    // Weekly: last 7 days or since first log, whichever is shorter
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today = 7 days
+    const weekStartDate = firstLogDate > sevenDaysAgo.toISOString().split('T')[0] ? firstLogDate : sevenDaysAgo.toISOString().split('T')[0];
+    const weekStartDateObj = new Date(weekStartDate);
+    daysInPeriod = Math.max(1, Math.floor((today.getTime() - weekStartDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    const weeklyLogs = recentLogs.filter((log: any) => log.date >= weekStartDate && log.date <= todayStr);
+    const weeklyTotalSeconds = weeklyLogs.reduce((sum: number, log: any) => sum + getLogSeconds(log), 0);
+    weeklyAvg = weeklyTotalSeconds / daysInPeriod / 60; // Convert to minutes for display
+  }
+
+  const targetMinutes = targetSeconds / 60;
   const compliancePercent = targetMinutes > 0 ? Math.round((weeklyAvg / targetMinutes) * 100) : 0;
 
-  // Calculate streak
+  // Calculate streak - check each CALENDAR day going backwards from yesterday
+  // Use 50% of target as threshold, consistent with other pages
+  const minimumSecondsForDay = targetSeconds * 0.5;
   let streak = 0;
-  for (const log of recentLogs) {
-    if ((log.wear_minutes || 0) >= targetMinutes * 0.9) {
+  const checkDate = new Date(today);
+  checkDate.setDate(checkDate.getDate() - 1); // Start from yesterday
+
+  while (true) {
+    const dateStr = checkDate.toISOString().split('T')[0];
+    const log = recentLogs.find((l: any) => l.date === dateStr);
+
+    if (log && getLogSeconds(log) >= minimumSecondsForDay) {
       streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
     } else {
       break;
     }
@@ -371,7 +444,13 @@ export default function PatientDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+        }
+      >
         {/* Patient Info Card */}
         <Card style={styles.patientCard}>
           <View style={styles.patientHeader}>
@@ -453,7 +532,8 @@ export default function PatientDetailScreen() {
                 <>
                   <View style={styles.wearChart}>
                     {recentLogs.slice(0, 7).reverse().map((log: any, index: number) => {
-                      const percent = targetMinutes > 0 ? Math.min((log.wear_minutes / targetMinutes) * 100, 100) : 0;
+                      const logSeconds = getLogSeconds(log);
+                      const percent = targetSeconds > 0 ? Math.min((logSeconds / targetSeconds) * 100, 100) : 0;
                       const color = percent >= 90 ? Colors.success : percent >= 70 ? Colors.warning : Colors.error;
                       return (
                         <View key={log.date || index} style={styles.wearDay}>
@@ -469,6 +549,9 @@ export default function PatientDetailScreen() {
                   </View>
                   <Text style={styles.avgText}>
                     Weekly Average: {formatTime(Math.round(weeklyAvg))} / {patientData.target_hours_per_day || 22}h goal
+                  </Text>
+                  <Text style={styles.avgNote}>
+                    Rolling 7-day avg (or {daysInPeriod} day{daysInPeriod !== 1 ? 's' : ''} if started recently). Days without logs = 0h.
                   </Text>
                 </>
               ) : (
@@ -893,6 +976,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     textAlign: 'center',
+  },
+  avgNote: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   boutItem: {
     flexDirection: 'row',

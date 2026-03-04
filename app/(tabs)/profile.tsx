@@ -157,6 +157,8 @@ export default function ProfileScreen() {
     treatmentBouts,
     currentBout,
     getComplianceStats,
+    dailyLogs,
+    trayChanges,
   } = usePatientStore();
 
   const [doctorCodeInput, setDoctorCodeInput] = useState('');
@@ -401,6 +403,35 @@ export default function ProfileScreen() {
 
   const complianceStats = userRole === 'patient' ? getComplianceStats() : null;
 
+  // Calculate incremental treatment progress based on qualifying days
+  const calculateTreatmentProgress = () => {
+    if (!patient) return 0;
+    const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
+    const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+    const targetSeconds = (patient.target_hours_per_day || 22) * 3600;
+    const minimumSecondsForDay = targetSeconds * 0.5;
+    const recommendedDays = 14;
+
+    // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+    const getLogSeconds = (log: any) => {
+      if (log.wear_seconds != null) return log.wear_seconds;
+      return (log.wear_minutes || 0) * 60;
+    };
+
+    const qualifyingDaysWorn = trayStartDate
+      ? dailyLogs.filter(log => {
+          if (log.date < trayStartDate) return false;
+          return getLogSeconds(log) >= minimumSecondsForDay;
+        }).length
+      : 0;
+
+    const completedAligners = patient.current_tray - 1;
+    const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
+    return ((completedAligners + currentAlignerProgress) / patient.total_trays) * 100;
+  };
+
+  const treatmentProgress = calculateTreatmentProgress();
+
   const formatReminderTimes = (times: string[] | undefined) => {
     if (!times || times.length === 0) return 'Not set';
     return times
@@ -464,13 +495,13 @@ export default function ProfileScreen() {
                 <View
                   style={[
                     styles.progressFill,
-                    { width: `${(patient.current_tray / patient.total_trays) * 100}%` },
+                    { width: `${treatmentProgress}%` },
                   ]}
                 />
               </View>
               <View style={styles.progressStats}>
                 <Text style={[styles.progressText, { color: themeColors.textSecondary }]}>
-                  {Math.round((patient.current_tray / patient.total_trays) * 100)}% Complete
+                  {Math.round(treatmentProgress)}% Complete
                 </Text>
                 {complianceStats && complianceStats.streak > 0 && (
                   <Text style={styles.streakText}>{complianceStats.streak} day streak</Text>
@@ -481,22 +512,27 @@ export default function ProfileScreen() {
 
           {/* Compliance Stats for patients */}
           {userRole === 'patient' && complianceStats && (
-            <View style={[styles.statsRow, { borderTopColor: themeColors.border }]}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{complianceStats.weeklyAverage}h</Text>
-                <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Weekly Avg</Text>
+            <>
+              <View style={[styles.statsRow, { borderTopColor: themeColors.border }]}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{complianceStats.weeklyAverage}h</Text>
+                  <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>7-Day Avg</Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{complianceStats.monthlyAverage}h</Text>
+                  <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>30-Day Avg</Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{treatmentBouts.length}</Text>
+                  <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Treatments</Text>
+                </View>
               </View>
-              <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{complianceStats.monthlyAverage}h</Text>
-                <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Monthly Avg</Text>
-              </View>
-              <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{treatmentBouts.length}</Text>
-                <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Treatments</Text>
-              </View>
-            </View>
+              <Text style={[styles.statsNote, { color: themeColors.textSecondary }]}>
+                Rolling averages based on the last 7 or 30 days (or since your first log if shorter). Days without wear = 0h.
+              </Text>
+            </>
           )}
         </Card>
 
@@ -532,7 +568,6 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.linkedDoctorDetails}>
                     <Text style={[styles.linkedDoctorName, { color: themeColors.textPrimary }]}>{assignedDoctor.name}</Text>
-                    <Text style={[styles.linkedDoctorEmail, { color: themeColors.textSecondary }]}>{assignedDoctor.email}</Text>
                     {assignedDoctor.phone && (
                       <Text style={[styles.linkedDoctorPhone, { color: themeColors.textSecondary }]}>{assignedDoctor.phone}</Text>
                     )}
@@ -815,7 +850,7 @@ export default function ProfileScreen() {
               showAlert({
                 title: 'Privacy Policy',
                 message:
-                  'BioLign is committed to protecting your medical data. All information is encrypted using industry-standard AES-256 encryption and stored securely on HIPAA-compliant servers.',
+                  'BioLign is committed to protecting your health information. Your data is encrypted in transit using TLS and at rest using AES-256 encryption. We implement role-based access controls so only you and your authorized healthcare providers can access your data.',
                 type: 'info',
               });
             }}
@@ -829,7 +864,7 @@ export default function ProfileScreen() {
               showAlert({
                 title: 'Data Security',
                 message:
-                  'All your data is encrypted in transit and at rest. We use TLS 1.3 for all communications and AES-256 for storage encryption.',
+                  'Your data is protected with:\n\n• TLS encryption for all data in transit\n• AES-256 encryption for stored data\n• Row-level security policies\n• Secure authentication\n\nFor HIPAA compliance in a production environment, additional configuration may be required.',
                 type: 'info',
               });
             }}
@@ -1032,6 +1067,12 @@ const styles = StyleSheet.create({
     width: 1,
     height: 30,
     backgroundColor: Colors.border,
+  },
+  statsNote: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+    fontStyle: 'italic',
   },
   section: {
     marginBottom: Spacing.lg,

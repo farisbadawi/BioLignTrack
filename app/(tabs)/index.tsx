@@ -1,15 +1,16 @@
 // app/(tabs)/index.tsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Users, MessageCircle, Calendar, TrendingUp, AlertCircle, Clock,
-  Activity, Target, Award, Timer, Package, ChevronRight
+  Activity, Target, Award, Timer, Package, ChevronRight, Edit3, Flame
 } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { ProgressRing } from '@/components/ProgressRing';
+import { LogHoursModal } from '@/components/LogHoursModal';
 import { router } from 'expo-router';
 import { ActivityIndicator } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -20,24 +21,138 @@ function PatientDashboard() {
     patient,
     profile,
     todayWearMinutes,
+    todayWearSeconds,
     unreadMessages,
     currentSession,
     getWeeklyProgress,
     startWearSession,
-    stopWearSession
+    stopWearSession,
+    assignedDoctor,
+    trayChanges,
+    dailyLogs
   } = usePatientStore();
   const { colors } = useTheme();
+  const [showLogHoursModal, setShowLogHoursModal] = useState(false);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+
+  // Live timer effect - updates every second when session is active
+  useEffect(() => {
+    if (!currentSession?.startTime) {
+      setSessionSeconds(0);
+      return;
+    }
+
+    // Calculate elapsed time for current session
+    const calculateElapsed = () => {
+      const now = new Date().getTime();
+      const start = new Date(currentSession.startTime).getTime();
+      return Math.floor((now - start) / 1000);
+    };
+
+    setSessionSeconds(calculateElapsed());
+
+    // Update every second
+    const interval = setInterval(() => {
+      setSessionSeconds(calculateElapsed());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentSession?.startTime]);
+
+  // Format seconds as HH:MM:SS
+  const formatLiveTime = (totalSeconds: number) => {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   if (!patient || !profile) return null;
 
+  // Dynamic greeting based on time of day
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning,';
+    if (hour < 17) return 'Good afternoon,';
+    return 'Good evening,';
+  };
+
+  // Check if treatment has started (patient linked to doctor)
+  const treatmentStarted = !!assignedDoctor && !!patient.treatment_start_date;
+
   const weeklyData = getWeeklyProgress();
-  const todayHours = todayWearMinutes / 60;
   const targetHours = patient.target_hours_per_day;
-  const progress = Math.min(todayHours / targetHours, 1);
-  const progressPercentage = Math.round((patient.current_tray / patient.total_trays) * 100);
+
+  // Calculate total today's time including current session
+  // todayWearSeconds comes from database, sessionSeconds is current active session
+  const displayTotalSeconds = (todayWearSeconds || 0) + sessionSeconds;
+  const totalTodayHours = displayTotalSeconds / 3600;
+  const progress = Math.min(totalTodayHours / targetHours, 1);
+
+  // Calculate qualifying days worn (days with at least 50% of target wear time)
+  const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
+  const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+  const targetSeconds = (patient.target_hours_per_day || 22) * 3600;
+  const minimumSecondsForDay = targetSeconds * 0.5; // 50% of target = ~11 hours
+  const recommendedDays = 14;
+
+  // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+  const getLogSeconds = (log: any) => {
+    if (log.wear_seconds != null) return log.wear_seconds;
+    return (log.wear_minutes || 0) * 60;
+  };
+
+  const qualifyingDaysWorn = trayStartDate
+    ? dailyLogs.filter(log => {
+        if (log.date < trayStartDate) return false;
+        return getLogSeconds(log) >= minimumSecondsForDay;
+      }).length
+    : 0;
+
+  // Calculate streak - check each CALENDAR day going backwards from yesterday
+  // (today isn't over yet, so we start from yesterday)
+  let currentStreak = 0;
+  const today = new Date();
+  const checkDate = new Date(today);
+  checkDate.setDate(checkDate.getDate() - 1); // Start from yesterday
+
+  while (true) {
+    const dateStr = checkDate.toISOString().split('T')[0];
+    const log = dailyLogs.find(l => l.date === dateStr);
+
+    if (log && getLogSeconds(log) >= minimumSecondsForDay) {
+      currentStreak++;
+      checkDate.setDate(checkDate.getDate() - 1); // Go back one more day
+    } else {
+      break; // No qualifying log for this day - streak ends
+    }
+  }
+
+  // Calculate incremental progress based on completed aligners + qualifying days on current
+  const completedAligners = patient.current_tray - 1;
+  const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
+  const progressPercentage = Math.round(((completedAligners + currentAlignerProgress) / patient.total_trays) * 100);
+
+  // Calculate weekly average - based on days since first log (not always 7)
+  const sortedLogs = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date));
+  const firstLogDate = sortedLogs.length > 0 ? sortedLogs[0].date : null;
+  const todayStr = today.toISOString().split('T')[0];
+
+  let weeklyAverage = 0;
+  if (firstLogDate) {
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today = 7 days
+    const weekStartDate = firstLogDate > sevenDaysAgo.toISOString().split('T')[0] ? firstLogDate : sevenDaysAgo.toISOString().split('T')[0];
+    const weekStartDateObj = new Date(weekStartDate);
+    const daysInPeriod = Math.max(1, Math.floor((today.getTime() - weekStartDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
+    const weeklyLogs = dailyLogs.filter(log => log.date >= weekStartDate && log.date <= todayStr);
+    const weeklyTotalSeconds = weeklyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0);
+    weeklyAverage = weeklyTotalSeconds / daysInPeriod / 3600;
+  }
 
   const QuickStatCard = ({ icon: Icon, title, value, subtitle, color = colors.primary, onPress }: any) => (
-    <TouchableOpacity onPress={onPress}>
+    <TouchableOpacity onPress={onPress} style={styles.statCardWrapper}>
       <Card style={styles.statCard}>
         <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
           <Icon size={20} color={color} />
@@ -55,7 +170,7 @@ function PatientDashboard() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: colors.textSecondary }]}>Good morning,</Text>
+            <Text style={[styles.greeting, { color: colors.textSecondary }]}>{getGreeting()}</Text>
             <Text style={[styles.patientName, { color: colors.textPrimary }]}>{patient.name}</Text>
             <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 8 }} />
           </View>
@@ -72,10 +187,29 @@ function PatientDashboard() {
           </TouchableOpacity>
         </View>
 
+        {/* Treatment Not Started Banner */}
+        {!treatmentStarted && (
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/profile')}
+            style={[styles.treatmentBanner, { backgroundColor: colors.warning + '20', borderColor: colors.warning }]}
+          >
+            <AlertCircle size={20} color={colors.warning} />
+            <View style={styles.treatmentBannerText}>
+              <Text style={[styles.treatmentBannerTitle, { color: colors.textPrimary }]}>
+                Link to Your Doctor
+              </Text>
+              <Text style={[styles.treatmentBannerSubtitle, { color: colors.textSecondary }]}>
+                Enter your doctor's code in Profile to start tracking compliance
+              </Text>
+            </View>
+            <ChevronRight size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+
         {/* Today's Progress Ring */}
         <Card style={styles.progressCard}>
           <View style={styles.progressHeader}>
-            <Text style={[styles.progressTitle, { color: colors.textPrimary }]}>Today's Wear Time</Text>
+            <Text style={[styles.progressTitle, { color: colors.textPrimary }]}>Wear Tracker</Text>
             {currentSession && (
               <View style={styles.liveIndicator}>
                 <View style={[styles.liveDot, { backgroundColor: colors.success }]} />
@@ -86,13 +220,29 @@ function PatientDashboard() {
 
           <View style={styles.progressRingContainer}>
             <ProgressRing progress={progress} size={140} strokeWidth={12}>
-              <Text style={[styles.progressValue, { color: colors.textPrimary }]}>
-                {todayHours.toFixed(1)}h
-              </Text>
-              <Text style={[styles.progressTarget, { color: colors.textSecondary }]}>
-                of {targetHours}h goal
-              </Text>
+              {currentSession ? (
+                <>
+                  <Text style={[styles.sessionTimerLabel, { color: colors.textSecondary }]}>Session</Text>
+                  <Text style={[styles.sessionTimer, { color: colors.primary }]}>
+                    {formatLiveTime(sessionSeconds)}
+                  </Text>
+                </>
+              ) : (
+                <Text style={[styles.notWearingText, { color: colors.textSecondary }]}>
+                  Not wearing
+                </Text>
+              )}
             </ProgressRing>
+          </View>
+
+          <View style={styles.todayTotalContainer}>
+            <Text style={[styles.todayTotalLabel, { color: colors.textSecondary }]}>Today's total</Text>
+            <Text style={[styles.todayTotalValue, { color: colors.textPrimary }]}>
+              {formatLiveTime(displayTotalSeconds)}
+            </Text>
+            <Text style={[styles.todayTotalGoal, { color: colors.textSecondary }]}>
+              of {targetHours}h goal
+            </Text>
           </View>
 
           <View style={styles.progressActions}>
@@ -111,8 +261,21 @@ function PatientDashboard() {
                 <Text style={[styles.startButtonText, { color: colors.background }]}>Start Wearing</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              style={[styles.logHoursButton, { borderColor: colors.primary }]}
+              onPress={() => setShowLogHoursModal(true)}
+            >
+              <Edit3 size={16} color={colors.primary} />
+              <Text style={[styles.logHoursText, { color: colors.primary }]}>Log Hours</Text>
+            </TouchableOpacity>
           </View>
         </Card>
+
+        {/* Log Hours Modal */}
+        <LogHoursModal
+          visible={showLogHoursModal}
+          onClose={() => setShowLogHoursModal(false)}
+        />
 
         {/* Quick Stats */}
         <View style={styles.statsGrid}>
@@ -126,10 +289,19 @@ function PatientDashboard() {
 
           <QuickStatCard
             icon={Target}
-            title="Weekly Avg"
-            value={`${(weeklyData.reduce((sum, day) => sum + day.hours, 0) / 7).toFixed(1)}h`}
-            subtitle="this week"
+            title="7-Day Avg"
+            value={`${weeklyAverage.toFixed(1)}h`}
+            subtitle="daily hours"
             color={colors.success}
+            onPress={() => router.push('/progress')}
+          />
+
+          <QuickStatCard
+            icon={Flame}
+            title="Streak"
+            value={`${currentStreak}`}
+            subtitle="days"
+            color={currentStreak > 0 ? colors.warning : colors.textSecondary}
             onPress={() => router.push('/progress')}
           />
         </View>
@@ -165,8 +337,8 @@ function PatientDashboard() {
         </Card>
 
         {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Actions</Text>
+        <View style={[styles.section, { marginTop: Spacing.xl }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: Spacing.md }]}>Quick Actions</Text>
 
           <View style={styles.quickActions}>
             <TouchableOpacity
@@ -263,6 +435,14 @@ function DoctorDashboard() {
 
   if (!profile) return null;
 
+  // Dynamic greeting based on time of day
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning,';
+    if (hour < 17) return 'Good afternoon,';
+    return 'Good evening,';
+  };
+
   const activePatients = assignedPatients.length;
   const pendingInvitations = invitations.filter(inv => inv.status === 'pending').length;
 
@@ -277,7 +457,7 @@ function DoctorDashboard() {
   }).length;
 
   const StatCard = ({ icon: Icon, title, value, subtitle, color = colors.primary, onPress }: any) => (
-    <TouchableOpacity onPress={onPress}>
+    <TouchableOpacity onPress={onPress} style={styles.statCardWrapper}>
       <Card style={styles.statCard}>
         <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
           <Icon size={24} color={color} />
@@ -294,7 +474,7 @@ function DoctorDashboard() {
       <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: colors.textSecondary }]}>Good morning,</Text>
+            <Text style={[styles.greeting, { color: colors.textSecondary }]}>{getGreeting()}</Text>
             <Text style={[styles.doctorName, { color: colors.textPrimary }]}>Dr. {profile.name?.replace('Dr. ', '') || profile.name}</Text>
             <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 8 }} />
           </View>
@@ -446,6 +626,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  treatmentBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  treatmentBannerText: {
+    flex: 1,
+  },
+  treatmentBannerTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  treatmentBannerSubtitle: {
+    fontSize: 12,
+  },
   progressCard: {
     alignItems: 'center',
     marginBottom: Spacing.md,
@@ -482,12 +682,52 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
   },
+  progressValueLive: {
+    fontSize: 22,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  sessionTimerLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  sessionTimer: {
+    fontSize: 24,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  notWearingText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  todayTotalContainer: {
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  todayTotalLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  todayTotalValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  todayTotalGoal: {
+    fontSize: 12,
+    marginTop: 2,
+  },
   progressTarget: {
     fontSize: 12,
     marginTop: 2,
   },
   progressActions: {
     width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
   actionButton: {
     paddingVertical: Spacing.sm,
@@ -503,13 +743,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  logHoursButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    gap: Spacing.xs,
+  },
+  logHoursText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   statsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.sm,
     marginBottom: Spacing.md,
   },
+  statCardWrapper: {
+    flexBasis: '48%',
+    flexGrow: 1,
+  },
   statCard: {
-    flex: 1,
     alignItems: 'center',
     paddingVertical: Spacing.md,
   },
@@ -583,6 +841,7 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: Spacing.md,
+    marginTop: Spacing.md,
   },
   quickActions: {
     gap: Spacing.xs,

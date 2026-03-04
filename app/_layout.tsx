@@ -18,114 +18,89 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   const [isReady, setIsReady] = useState(false);
-  const [initialRouteSet, setInitialRouteSet] = useState(false);
+  const [initialCheckDone, setInitialCheckDone] = useState(false);
   const router = useRouter();
   const {
     profile,
     isAuthenticated,
-    loading,
     initialize,
     clearAuth
   } = usePatientStore();
   const { isDark, colors } = useTheme();
 
-  // Initial setup - fast and resilient
+  // Single auth listener that handles everything
   useEffect(() => {
-    let didFinish = false;
+    let isInitialEvent = true;
 
-    const finishSetup = () => {
-      if (!didFinish) {
-        didFinish = true;
+    // Hard timeout - app loads after 5 seconds no matter what
+    const hardTimeout = setTimeout(() => {
+      console.log('Hard timeout - forcing app to load');
+      if (!isReady) {
         setIsReady(true);
-        // Safely hide splash screen (may error on hot reload, that's ok)
+        setInitialCheckDone(true);
         SplashScreen.hideAsync().catch(() => {});
       }
-    };
+    }, 5000);
 
-    // Hard timeout - app WILL load after 3 seconds no matter what
-    const hardTimeout = setTimeout(() => {
-      console.log('Hard timeout reached, forcing app to load');
-      finishSetup();
-    }, 3000);
-
-    const setup = async () => {
-      try {
-        // Quick session check with its own timeout
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<null>((resolve) =>
-          setTimeout(() => {
-            console.log('Session check timed out, proceeding as logged out');
-            resolve(null);
-          }, 2000)
-        );
-
-        const result = await Promise.race([sessionPromise, timeoutPromise]);
-
-        if (result && 'data' in result && result.data?.session?.user) {
-          console.log('Found existing session, initializing...');
-          // Quick initialize with timeout
-          try {
-            await Promise.race([
-              initialize(),
-              new Promise((_, reject) => setTimeout(() => reject('timeout'), 2000))
-            ]);
-          } catch {
-            console.log('Initialize timed out, continuing anyway...');
-          }
-        } else {
-          console.log('No session found or check timed out');
-          clearAuth();
-        }
-      } catch (error) {
-        console.log('Setup error, proceeding as logged out:', error);
-        clearAuth();
-      } finally {
-        clearTimeout(hardTimeout);
-        finishSetup();
-      }
-    };
-
-    setup();
-
-    return () => clearTimeout(hardTimeout);
-  }, []);
-
-  // Handle initial routing
-  useEffect(() => {
-    if (!isReady || initialRouteSet) return;
-
-    // Don't wait for loading indefinitely - route after isReady
-    if (isAuthenticated && profile) {
-      console.log('User authenticated, going to tabs');
-      router.replace('/(tabs)');
-    } else {
-      console.log('User not authenticated, going to role selection');
-      router.replace('/role-selection');
-    }
-
-    setInitialRouteSet(true);
-  }, [isReady, isAuthenticated, profile, initialRouteSet, router]);
-
-  // Auth state listener
-  useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event);
+        // Ignore token refresh events - they're normal and noisy
+        if (event === 'TOKEN_REFRESHED') return;
 
-        if (event === 'SIGNED_IN' && session?.user) {
-          console.log('User signed in, initializing...');
+        console.log('Auth event:', event, session ? 'has session' : 'no session');
+
+        if (event === 'INITIAL_SESSION') {
+          // This fires once on app load with the current session state
+          if (session?.user) {
+            console.log('Initial session found, initializing...');
+            try {
+              await Promise.race([
+                initialize(),
+                new Promise((_, reject) => setTimeout(() => reject('timeout'), 4000))
+              ]);
+            } catch {
+              console.log('Initialize timed out, continuing anyway...');
+            }
+          } else {
+            console.log('No initial session');
+            clearAuth();
+          }
+
+          clearTimeout(hardTimeout);
+          setInitialCheckDone(true);
+          setIsReady(true);
+          SplashScreen.hideAsync().catch(() => {});
+          isInitialEvent = false;
+        } else if (event === 'SIGNED_IN' && !isInitialEvent) {
+          console.log('User signed in');
           await initialize();
+          router.replace('/(tabs)');
         } else if (event === 'SIGNED_OUT') {
-          console.log('User signed out, clearing auth...');
+          console.log('User signed out');
           clearAuth();
-          // Navigate to role selection after sign out
           router.replace('/role-selection');
         }
       }
     );
 
-    return () => subscription.unsubscribe();
-  }, [initialize, clearAuth, router]);
+    return () => {
+      clearTimeout(hardTimeout);
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Handle routing after initial check is done
+  useEffect(() => {
+    if (!initialCheckDone) return;
+
+    if (isAuthenticated && profile) {
+      console.log('Routing to tabs');
+      router.replace('/(tabs)');
+    } else {
+      console.log('Routing to role selection');
+      router.replace('/role-selection');
+    }
+  }, [initialCheckDone]);
 
   if (!isReady) {
     return (
@@ -154,6 +129,7 @@ function RootLayoutNav() {
         <Stack.Screen name="doctor-onboarding" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="edit-practice" />
+        <Stack.Screen name="book-appointment" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="+not-found" />
       </Stack>

@@ -1,11 +1,64 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, TextInput, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, Clock, MapPin, User, Phone } from 'lucide-react-native';
+import { Calendar, Clock, MapPin, User, Phone, Settings, ExternalLink, Link, CheckCircle } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { useTheme } from '@/contexts/ThemeContext';
+import { router } from 'expo-router';
+
+// Office hours types and helpers
+interface DaySchedule {
+  isOpen: boolean
+  openTime: string
+  closeTime: string
+}
+
+interface OfficeHoursSchedule {
+  monday: DaySchedule
+  tuesday: DaySchedule
+  wednesday: DaySchedule
+  thursday: DaySchedule
+  friday: DaySchedule
+  saturday: DaySchedule
+  sunday: DaySchedule
+}
+
+const DAY_LABELS: Record<string, string> = {
+  monday: 'Mon',
+  tuesday: 'Tue',
+  wednesday: 'Wed',
+  thursday: 'Thu',
+  friday: 'Fri',
+  saturday: 'Sat',
+  sunday: 'Sun',
+}
+
+const DAYS_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+
+const formatTime12h = (time24: string): string => {
+  const [hours, minutes] = time24.split(':')
+  const h = parseInt(hours, 10)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return minutes === '00' ? `${h12}${ampm}` : `${h12}:${minutes}${ampm}`
+}
+
+const parseOfficeHours = (officeHoursStr: string): OfficeHoursSchedule | null => {
+  if (!officeHoursStr) return null
+
+  try {
+    const parsed = JSON.parse(officeHoursStr)
+    if (parsed.monday && typeof parsed.monday.isOpen === 'boolean') {
+      return parsed as OfficeHoursSchedule
+    }
+  } catch {
+    // Legacy free-text format
+  }
+
+  return null
+}
 
 interface AppointmentData {
   id: string;
@@ -18,13 +71,82 @@ interface AppointmentData {
 }
 
 export default function AppointmentsScreen() {
-  const { appointments, userRole, assignedDoctor } = usePatientStore();
+  const { appointments, userRole, assignedDoctor, practiceInfo, savePracticeInfo, loadAssignedDoctor } = usePatientStore();
   const { colors } = useTheme();
+  const [calendlyInput, setCalendlyInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadAssignedDoctor();
+    } catch (error) {
+      console.error('Failed to refresh:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Get doctor's practice info (for patients)
   const practicePhone = assignedDoctor?.practice_phone || null;
   const practiceAddress = assignedDoctor?.practice_address || null;
   const practiceName = assignedDoctor?.practice_name || 'Your Orthodontist';
+  const calendlyUrl = assignedDoctor?.calendly_url || null;
+  const officeHours = assignedDoctor?.office_hours || null;
+
+  // Handle scheduling - always go to book-appointment screen (it handles missing Calendly gracefully)
+  const handleSchedule = () => {
+    router.push('/book-appointment');
+  };
+
+  // Safely handle phone calls with proper error handling
+  const handleCallOffice = async () => {
+    if (!practicePhone) return;
+
+    const phoneNumber = practicePhone.replace(/[^0-9+]/g, '');
+    const telUrl = `tel:${phoneNumber}`;
+
+    try {
+      const supported = await Linking.canOpenURL(telUrl);
+      if (supported) {
+        await Linking.openURL(telUrl);
+      } else {
+        // Phone calls not supported (e.g., simulator) - show the number to copy
+        Alert.alert(
+          'Call Office',
+          `Phone: ${practicePhone}`,
+          [
+            { text: 'OK', style: 'cancel' },
+          ]
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Call Office',
+        `Phone: ${practicePhone}`,
+        [
+          { text: 'OK', style: 'cancel' },
+        ]
+      );
+    }
+  };
+
+  // Handle doctor saving Calendly URL
+  const handleSaveCalendly = async () => {
+    if (!calendlyInput.trim()) return;
+
+    setIsSaving(true);
+    const result = await savePracticeInfo({ calendly_url: calendlyInput.trim() });
+    setIsSaving(false);
+
+    if (result.success) {
+      setCalendlyInput('');
+      Alert.alert('Success', 'Calendly URL saved! Your patients can now book appointments with you.');
+    } else {
+      Alert.alert('Error', result.error || 'Failed to save Calendly URL');
+    }
+  };
 
   // Filter and sort appointments
   const upcomingAppointments = (appointments as unknown as AppointmentData[])
@@ -105,21 +227,13 @@ export default function AppointmentsScreen() {
 
       <View style={[styles.appointmentActions, { borderTopColor: colors.border }]}>
         {practicePhone && (
-          <TouchableOpacity style={styles.actionButton} onPress={() => {
-            Linking.openURL(`tel:${practicePhone.replace(/[^0-9+]/g, '')}`);
-          }}>
+          <TouchableOpacity style={styles.actionButton} onPress={handleCallOffice}>
             <Phone size={16} color={colors.primary} />
             <Text style={[styles.actionText, { color: colors.primary }]}>Call Office</Text>
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={styles.actionButton} onPress={() => {
-          if (practicePhone) {
-            Alert.alert('Reschedule', `Please call ${practiceName} at ${practicePhone} to reschedule your appointment.`);
-          } else {
-            Alert.alert('Reschedule', 'Please contact your orthodontist to reschedule your appointment.');
-          }
-        }}>
+        <TouchableOpacity style={styles.actionButton} onPress={handleSchedule}>
           <Calendar size={16} color={colors.primary} />
           <Text style={[styles.actionText, { color: colors.primary }]}>Reschedule</Text>
         </TouchableOpacity>
@@ -138,9 +252,134 @@ export default function AppointmentsScreen() {
     return `${upcomingAppointments.length} upcoming appointments`;
   };
 
+  // Doctor view
+  if (userRole === 'doctor') {
+    const doctorCalendlyUrl = practiceInfo?.calendly_url || null;
+
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
+        <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Appointments</Text>
+            <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Manage your patient bookings</Text>
+          </View>
+
+          {/* Calendly Setup Card */}
+          <Card style={styles.calendlySetupCard}>
+            <View style={styles.calendlyHeader}>
+              <Settings size={20} color={colors.primary} />
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: 0 }]}>Calendly Integration</Text>
+            </View>
+
+            {doctorCalendlyUrl ? (
+              <View style={styles.calendlyConfigured}>
+                <View style={styles.calendlyStatus}>
+                  <CheckCircle size={20} color={colors.success} />
+                  <Text style={[styles.calendlyStatusText, { color: colors.success }]}>Connected</Text>
+                </View>
+                <Text style={[styles.calendlyUrlText, { color: colors.textSecondary }]} numberOfLines={1}>
+                  {doctorCalendlyUrl}
+                </Text>
+                <View style={styles.calendlyActions}>
+                  <TouchableOpacity
+                    style={[styles.calendlyButton, { backgroundColor: colors.primary }]}
+                    onPress={() => router.push('/view-bookings')}
+                  >
+                    <ExternalLink size={18} color={colors.background} />
+                    <Text style={[styles.calendlyButtonText, { color: colors.background }]}>View Bookings</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.calendlyButtonOutline, { borderColor: colors.primary }]}
+                    onPress={() => router.push('/(tabs)/profile')}
+                  >
+                    <Text style={[styles.calendlyButtonOutlineText, { color: colors.primary }]}>Edit in Profile</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.calendlySetup}>
+                <Text style={[styles.calendlySetupText, { color: colors.textSecondary }]}>
+                  Connect your Calendly to let patients book appointments directly.
+                </Text>
+                <TextInput
+                  style={[styles.calendlyInput, { borderColor: colors.border, color: colors.textPrimary }]}
+                  placeholder="https://calendly.com/your-name"
+                  placeholderTextColor={colors.textSecondary}
+                  value={calendlyInput}
+                  onChangeText={setCalendlyInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <TouchableOpacity
+                  style={[styles.calendlyButton, { backgroundColor: colors.primary, opacity: isSaving || !calendlyInput.trim() ? 0.6 : 1 }]}
+                  onPress={handleSaveCalendly}
+                  disabled={isSaving || !calendlyInput.trim()}
+                >
+                  <Link size={18} color={colors.background} />
+                  <Text style={[styles.calendlyButtonText, { color: colors.background }]}>
+                    {isSaving ? 'Saving...' : 'Connect Calendly'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </Card>
+
+          {/* Upcoming Patient Appointments */}
+          <View style={styles.appointmentsList}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Patient Appointments</Text>
+
+            {upcomingAppointments.length === 0 ? (
+              <Card style={styles.emptyCard}>
+                <Calendar size={48} color={colors.textSecondary} />
+                <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No upcoming appointments</Text>
+                <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+                  {doctorCalendlyUrl
+                    ? 'Patient appointments will appear here when booked.'
+                    : 'Set up Calendly above to enable patient bookings.'}
+                </Text>
+              </Card>
+            ) : (
+              upcomingAppointments.map((appointment) => (
+                <AppointmentCard key={appointment.id} appointment={appointment} />
+              ))
+            )}
+          </View>
+
+          {/* View Bookings Button */}
+          {doctorCalendlyUrl && (
+            <TouchableOpacity
+              style={[styles.viewBookingsButton, { backgroundColor: colors.primary }]}
+              onPress={() => router.push('/view-bookings')}
+            >
+              <Calendar size={20} color={colors.background} />
+              <Text style={[styles.viewBookingsText, { color: colors.background }]}>Open Calendly Dashboard</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={{ height: Spacing.xl }} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Patient view
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
-      <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={[styles.scrollView, { backgroundColor: colors.surface }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{getPageTitle()}</Text>
@@ -202,15 +441,13 @@ export default function AppointmentsScreen() {
           )}
         </View>
 
-        {/* Quick Actions */}
+        {/* Quick Actions - Patient only */}
         <Card style={styles.quickActionsCard}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Need Help?</Text>
 
           <View style={styles.quickActions}>
             {practicePhone ? (
-              <TouchableOpacity style={styles.quickAction} onPress={() => {
-                Linking.openURL(`tel:${practicePhone.replace(/[^0-9+]/g, '')}`);
-              }}>
+              <TouchableOpacity style={styles.quickAction} onPress={handleCallOffice}>
                 <Phone size={20} color={colors.primary} />
                 <Text style={[styles.quickActionText, { color: colors.primary }]}>Call Office</Text>
               </TouchableOpacity>
@@ -221,13 +458,7 @@ export default function AppointmentsScreen() {
               </View>
             )}
 
-            <TouchableOpacity style={styles.quickAction} onPress={() => {
-              if (practicePhone) {
-                Alert.alert('Schedule', `Please call ${practiceName} at ${practicePhone} to schedule a new appointment.`);
-              } else {
-                Alert.alert('Schedule', 'Please contact your orthodontist to schedule a new appointment.');
-              }
-            }}>
+            <TouchableOpacity style={styles.quickAction} onPress={handleSchedule}>
               <Calendar size={20} color={colors.primary} />
               <Text style={[styles.quickActionText, { color: colors.primary }]}>Schedule</Text>
             </TouchableOpacity>
@@ -248,6 +479,82 @@ export default function AppointmentsScreen() {
             )}
           </View>
         </Card>
+
+        {/* Office Hours Card */}
+        {officeHours && (() => {
+          const schedule = parseOfficeHours(officeHours);
+
+          // Legacy text format
+          if (!schedule) {
+            return (
+              <Card style={styles.officeHoursCard}>
+                <View style={styles.officeHoursHeader}>
+                  <Clock size={20} color={colors.primary} />
+                  <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Office Hours</Text>
+                </View>
+                <Text style={[styles.officeHoursLegacy, { color: colors.textSecondary }]}>{officeHours}</Text>
+              </Card>
+            );
+          }
+
+          // Structured format - group consecutive days with same hours
+          const groupedHours: { days: string[], hours: string }[] = [];
+          let currentGroup: { days: string[], hours: string } | null = null;
+
+          DAYS_ORDER.forEach((day) => {
+            const daySchedule = schedule[day];
+            const hoursStr = daySchedule.isOpen
+              ? `${formatTime12h(daySchedule.openTime)} - ${formatTime12h(daySchedule.closeTime)}`
+              : 'Closed';
+
+            if (currentGroup && currentGroup.hours === hoursStr) {
+              currentGroup.days.push(DAY_LABELS[day]);
+            } else {
+              if (currentGroup) groupedHours.push(currentGroup);
+              currentGroup = { days: [DAY_LABELS[day]], hours: hoursStr };
+            }
+          });
+          if (currentGroup) groupedHours.push(currentGroup);
+
+          return (
+            <Card style={styles.officeHoursCard}>
+              <View style={styles.officeHoursHeader}>
+                <Clock size={20} color={colors.primary} />
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Office Hours</Text>
+              </View>
+              <View style={[styles.officeHoursTable, { borderColor: colors.border }]}>
+                {groupedHours.map((group, index) => {
+                  const daysText = group.days.length > 2
+                    ? `${group.days[0]} - ${group.days[group.days.length - 1]}`
+                    : group.days.join(', ');
+
+                  return (
+                    <View
+                      key={index}
+                      style={[
+                        styles.officeHoursRow,
+                        { borderBottomColor: colors.border },
+                        index === groupedHours.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                    >
+                      <Text style={[styles.officeHoursDays, { color: colors.textPrimary }]}>{daysText}</Text>
+                      <Text
+                        style={[
+                          styles.officeHoursTime,
+                          { color: group.hours === 'Closed' ? colors.textSecondary : colors.primary },
+                        ]}
+                      >
+                        {group.hours}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </Card>
+          );
+        })()}
+
+        <View style={{ height: Spacing.xl }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -452,5 +759,121 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.primary,
     fontWeight: '600',
+  },
+  // Calendly setup styles
+  calendlySetupCard: {
+    marginBottom: Spacing.lg,
+  },
+  calendlyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  calendlyConfigured: {
+    gap: Spacing.md,
+  },
+  calendlyStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  calendlyStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  calendlyUrlText: {
+    fontSize: 13,
+  },
+  calendlyActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  calendlyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    flex: 1,
+  },
+  calendlyButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  calendlyButtonOutline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  calendlyButtonOutlineText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  calendlySetup: {
+    gap: Spacing.md,
+  },
+  calendlySetupText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  calendlyInput: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    fontSize: 14,
+  },
+  viewBookingsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.md,
+  },
+  viewBookingsText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Office Hours styles
+  officeHoursCard: {
+    marginBottom: Spacing.lg,
+  },
+  officeHoursHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+  },
+  officeHoursLegacy: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  officeHoursTable: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+  },
+  officeHoursRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  officeHoursDays: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  officeHoursTime: {
+    fontSize: 14,
   },
 });

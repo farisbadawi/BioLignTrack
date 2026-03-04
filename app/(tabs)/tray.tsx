@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, CheckCircle, Clock, AlertCircle, Calendar, Play, ChevronRight, Settings, RefreshCw, Package, History, Award, Trash2 } from 'lucide-react-native';
+import { Camera, CheckCircle, Clock, AlertCircle, Calendar, Play, ChevronRight, Settings, RefreshCw, Package, History, Award, Trash2, Flame } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
@@ -11,7 +11,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function TrayScreen() {
-  const { patient, trayChanges, logTrayChange, updateTreatmentInfo, startNewTreatmentBout, currentBout, treatmentBouts, loadPatientData, progressPhotos, uploadProgressPhoto, deleteProgressPhoto } = usePatientStore();
+  const { patient, trayChanges, dailyLogs, logTrayChange, revertToPreviousAligner, updateTreatmentInfo, startNewTreatmentBout, currentBout, treatmentBouts, loadPatientData, progressPhotos, uploadProgressPhoto, deleteProgressPhoto } = usePatientStore();
   const [selectedFit, setSelectedFit] = useState<'ok' | 'watch' | 'not_seated' | null>(null);
   const { showAlert, AlertComponent } = useCustomAlert();
   const { colors: themeColors } = useTheme();
@@ -257,14 +257,60 @@ export default function TrayScreen() {
   if (!patient) return null;
 
   const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
-  const daysOnCurrentTray = currentTrayChange
+  const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+
+  // Calculate actual "qualifying" days worn - days with at least 50% of target wear time
+  const targetSeconds = (patient.target_hours_per_day || 22) * 3600;
+  const minimumSecondsForDay = targetSeconds * 0.5; // 50% of target = ~11 hours
+
+  // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+  const getLogSeconds = (log: any) => {
+    if (log.wear_seconds != null) return log.wear_seconds;
+    return (log.wear_minutes || 0) * 60;
+  };
+
+  // Get qualifying logs for current aligner (sorted by date descending)
+  const qualifyingLogs = trayStartDate
+    ? dailyLogs
+        .filter(log => log.date >= trayStartDate && getLogSeconds(log) >= minimumSecondsForDay)
+        .sort((a, b) => b.date.localeCompare(a.date))
+    : [];
+
+  const qualifyingDaysWorn = qualifyingLogs.length;
+
+  // Calculate streak - check each CALENDAR day going backwards from yesterday
+  // (today isn't over yet, so we start from yesterday)
+  let currentStreak = 0;
+  const today = new Date();
+  const checkDate = new Date(today);
+  checkDate.setDate(checkDate.getDate() - 1); // Start from yesterday
+
+  while (true) {
+    const dateStr = checkDate.toISOString().split('T')[0];
+    const log = dailyLogs.find(l => l.date === dateStr);
+
+    if (log && getLogSeconds(log) >= minimumSecondsForDay) {
+      currentStreak++;
+      checkDate.setDate(checkDate.getDate() - 1); // Go back one more day
+    } else {
+      break; // No qualifying log for this day - streak ends
+    }
+  }
+
+  // Calendar days since starting (for "days left" calculation)
+  const calendarDaysOnTray = currentTrayChange
     ? Math.floor((Date.now() - new Date(currentTrayChange.date_changed).getTime()) / (1000 * 60 * 60 * 24))
     : 0;
 
   const recommendedDays = 14; // 2 weeks per tray
-  const daysLeft = Math.max(0, recommendedDays - daysOnCurrentTray);
-  const isReadyForChange = daysLeft === 0;
+  const daysLeft = Math.max(0, recommendedDays - qualifyingDaysWorn);
+  const isReadyForChange = qualifyingDaysWorn >= recommendedDays;
   const isLastTray = patient.current_tray >= patient.total_trays;
+
+  // Calculate incremental progress based on completed aligners + qualifying days on current aligner
+  const completedAligners = patient.current_tray - 1;
+  const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1); // Cap at 1 (100% of current aligner)
+  const totalProgress = ((completedAligners + currentAlignerProgress) / patient.total_trays) * 100;
 
   const handleStartNewAligner = () => {
     if (!selectedFit) {
@@ -291,7 +337,7 @@ export default function TrayScreen() {
     if (!isReadyForChange) {
       showAlert({
         title: 'Start New Aligner Early?',
-        message: `You've only worn your current aligner for ${daysOnCurrentTray} days (recommended: 14 days). Starting aligner #${nextTray} early may affect your treatment. Are you sure?`,
+        message: `You've only logged ${qualifyingDaysWorn} qualifying days of wear (11+ hours). Recommended: 14 days. Starting aligner #${nextTray} early may affect your treatment. Are you sure?`,
         type: 'warning',
         buttons: [
           { text: 'Cancel', style: 'cancel' },
@@ -454,7 +500,7 @@ export default function TrayScreen() {
             <View style={styles.currentAlignerInfo}>
               <Text style={[styles.currentAlignerTitle, { color: themeColors.textPrimary }]}>Current Aligner</Text>
               <Text style={[styles.currentAlignerProgress, { color: themeColors.textSecondary }]}>
-                {patient.current_tray} of {patient.total_trays} ({Math.round((patient.current_tray / patient.total_trays) * 100)}% complete)
+                {patient.current_tray} of {patient.total_trays} ({Math.round(totalProgress)}% complete)
               </Text>
             </View>
           </View>
@@ -463,7 +509,7 @@ export default function TrayScreen() {
             <View
               style={[
                 styles.progressFill,
-                { width: `${(patient.current_tray / patient.total_trays) * 100}%` }
+                { width: `${totalProgress}%` }
               ]}
             />
           </View>
@@ -472,8 +518,16 @@ export default function TrayScreen() {
             <View style={styles.timeStat}>
               <Clock size={18} color={themeColors.textSecondary} />
               <View>
-                <Text style={[styles.timeStatValue, { color: themeColors.textPrimary }]}>{daysOnCurrentTray}</Text>
+                <Text style={[styles.timeStatValue, { color: themeColors.textPrimary }]}>{qualifyingDaysWorn}</Text>
                 <Text style={[styles.timeStatLabel, { color: themeColors.textSecondary }]}>days worn</Text>
+              </View>
+            </View>
+            <View style={[styles.timeStatDivider, { backgroundColor: themeColors.border }]} />
+            <View style={styles.timeStat}>
+              <Flame size={18} color={currentStreak > 0 ? Colors.warning : themeColors.textSecondary} />
+              <View>
+                <Text style={[styles.timeStatValue, { color: themeColors.textPrimary }]}>{currentStreak}</Text>
+                <Text style={[styles.timeStatLabel, { color: themeColors.textSecondary }]}>day streak</Text>
               </View>
             </View>
             <View style={[styles.timeStatDivider, { backgroundColor: themeColors.border }]} />
@@ -489,6 +543,10 @@ export default function TrayScreen() {
               </View>
             </View>
           </View>
+
+          <Text style={[styles.dayWornNote, { color: themeColors.textSecondary }]}>
+            A day counts when you wear aligners for 11+ hours
+          </Text>
         </Card>
 
         {/* Start New Aligner Section */}
@@ -651,6 +709,45 @@ export default function TrayScreen() {
             </View>
           )}
 
+          {/* Revert to Previous Aligner */}
+          {patient.current_tray > 1 && (
+            <TouchableOpacity
+              style={[styles.revertButton, { borderColor: Colors.warning }]}
+              onPress={() => {
+                showAlert({
+                  title: 'Revert to Previous Aligner?',
+                  message: `This will change you back to Aligner #${patient.current_tray - 1} and remove the entry for Aligner #${patient.current_tray}. Use this if you switched too early.`,
+                  type: 'warning',
+                  buttons: [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Revert',
+                      onPress: async () => {
+                        const result = await revertToPreviousAligner();
+                        if (result.success) {
+                          showAlert({
+                            title: 'Reverted Successfully',
+                            message: `You're now back on Aligner #${patient.current_tray - 1}.`,
+                            type: 'success',
+                          });
+                        } else {
+                          showAlert({
+                            title: 'Error',
+                            message: result.error || 'Failed to revert aligner',
+                            type: 'error',
+                          });
+                        }
+                      },
+                    },
+                  ],
+                });
+              }}
+            >
+              <ChevronRight size={18} color={Colors.warning} style={{ transform: [{ rotate: '180deg' }] }} />
+              <Text style={[styles.revertButtonText, { color: Colors.warning }]}>Go Back to Aligner #{patient.current_tray - 1}</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={styles.newBoutButton}
             onPress={handleStartNewBout}
@@ -721,35 +818,46 @@ export default function TrayScreen() {
         <Card style={styles.historyCard}>
           <Text style={[styles.sectionTitle, { color: themeColors.textPrimary }]}>Aligner History</Text>
           {trayChanges.length > 0 ? (
-            trayChanges.slice(0, 5).map((change) => (
-              <View key={change.id} style={[styles.historyItem, { borderBottomColor: themeColors.border }]}>
-                <View style={styles.historyLeft}>
-                  <View style={[styles.historyNumber, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-                    <Text style={styles.historyNumberText}>#{change.tray_number}</Text>
+            trayChanges.slice(0, 5).map((change) => {
+              // Find the bout for this change
+              const bout = treatmentBouts.find(b => b.id === change.bout_id);
+              const boutNumber = bout?.bout_number || 1;
+
+              return (
+                <View key={change.id} style={[styles.historyItem, { borderBottomColor: themeColors.border }]}>
+                  <View style={styles.historyLeft}>
+                    <View style={[styles.historyNumber, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
+                      <Text style={styles.historyNumberText}>#{change.tray_number}</Text>
+                    </View>
+                    <View style={styles.historyInfo}>
+                      <Text style={[styles.historyTray, { color: themeColors.textPrimary }]}>
+                        Aligner {change.tray_number}
+                        {treatmentBouts.length > 1 && (
+                          <Text style={[styles.historyBout, { color: themeColors.textSecondary }]}> (Bout {boutNumber})</Text>
+                        )}
+                      </Text>
+                      <Text style={[styles.historyDate, { color: themeColors.textSecondary }]}>
+                        Started {new Date(change.date_changed).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.historyInfo}>
-                    <Text style={[styles.historyTray, { color: themeColors.textPrimary }]}>Aligner {change.tray_number}</Text>
-                    <Text style={[styles.historyDate, { color: themeColors.textSecondary }]}>
-                      Started {new Date(change.date_changed).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
+                  <View style={[
+                    styles.historyStatus,
+                    { backgroundColor: change.fit_status === 'ok' || change.fit_status === 'good' ? Colors.success :
+                      change.fit_status === 'watch' ? Colors.warning : Colors.error }
+                  ]}>
+                    <Text style={styles.historyStatusText}>
+                      {change.fit_status === 'ok' || change.fit_status === 'good' ? 'Good' :
+                       change.fit_status === 'watch' ? 'Fair' : 'Poor'}
                     </Text>
                   </View>
                 </View>
-                <View style={[
-                  styles.historyStatus,
-                  { backgroundColor: change.fit_status === 'ok' || change.fit_status === 'good' ? Colors.success :
-                    change.fit_status === 'watch' ? Colors.warning : Colors.error }
-                ]}>
-                  <Text style={styles.historyStatusText}>
-                    {change.fit_status === 'ok' || change.fit_status === 'good' ? 'Good' :
-                     change.fit_status === 'watch' ? 'Fair' : 'Poor'}
-                  </Text>
-                </View>
-              </View>
-            ))
+              );
+            })
           ) : (
             <View style={styles.emptyHistory}>
               <Text style={[styles.emptyHistoryText, { color: themeColors.textSecondary }]}>
@@ -862,6 +970,13 @@ const styles = StyleSheet.create({
   timeStatLabel: {
     fontSize: 12,
     color: Colors.textSecondary,
+  },
+  dayWornNote: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.md,
+    fontStyle: 'italic',
   },
   newAlignerCard: {
     marginBottom: Spacing.md,
@@ -1026,6 +1141,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
   },
+  historyBout: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: Colors.textSecondary,
+  },
   historyDate: {
     fontSize: 13,
     color: Colors.textSecondary,
@@ -1174,6 +1294,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.textPrimary,
+  },
+  revertButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.warning,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.warning + '08',
+  },
+  revertButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.warning,
   },
   newBoutButton: {
     flexDirection: 'row',

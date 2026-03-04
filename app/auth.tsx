@@ -10,6 +10,21 @@ import { router, useLocalSearchParams } from 'expo-router'
 import { useCustomAlert } from '@/components/CustomAlert'
 import { useTheme } from '@/contexts/ThemeContext'
 
+// Format phone number as user types (e.g., (555) 123-4567)
+const formatPhoneNumber = (text: string): string => {
+  // Remove all non-numeric characters
+  const cleaned = text.replace(/\D/g, '')
+
+  // Limit to 10 digits
+  const limited = cleaned.slice(0, 10)
+
+  // Format based on length
+  if (limited.length === 0) return ''
+  if (limited.length <= 3) return `(${limited}`
+  if (limited.length <= 6) return `(${limited.slice(0, 3)}) ${limited.slice(3)}`
+  return `(${limited.slice(0, 3)}) ${limited.slice(3, 6)}-${limited.slice(6)}`
+}
+
 export default function AuthScreen() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
@@ -17,8 +32,12 @@ export default function AuthScreen() {
   const [name, setName] = useState('')
   const [doctorCode, setDoctorCode] = useState('')
   const [loading, setLoading] = useState(false)
+  // Optional practice info for doctors
+  const [practiceName, setPracticeName] = useState('')
+  const [practicePhone, setPracticePhone] = useState('')
+  const [practiceAddress, setPracticeAddress] = useState('')
 
-  const { signIn, signUp, clearAuth, joinDoctorByCode } = usePatientStore()
+  const { signIn, signUp, clearAuth, joinDoctorByCode, savePracticeInfo } = usePatientStore()
   const params = useLocalSearchParams()
   const { showAlert, AlertComponent } = useCustomAlert()
   const { colors } = useTheme()
@@ -93,6 +112,15 @@ export default function AuthScreen() {
             }
           }
 
+          // If doctor entered practice info, save it
+          if (role === 'doctor' && (practiceName.trim() || practicePhone.trim() || practiceAddress.trim())) {
+            await savePracticeInfo({
+              practice_name: practiceName.trim(),
+              practice_phone: practicePhone.trim(),
+              practice_address: practiceAddress.trim(),
+            })
+          }
+
           showAlert({
             title: 'Success!',
             message: role === 'doctor'
@@ -144,7 +172,7 @@ export default function AuthScreen() {
     } finally {
       setLoading(false)
     }
-  }, [email, password, name, isSignUp, role, invitationCode, signUp, signIn, showAlert, doctorCode, joinDoctorByCode])
+  }, [email, password, name, isSignUp, role, invitationCode, signUp, signIn, showAlert, doctorCode, joinDoctorByCode, practiceName, practicePhone, practiceAddress, savePracticeInfo])
 
   const handleToggleMode = useCallback(() => {
     setIsSignUp(!isSignUp)
@@ -259,6 +287,55 @@ export default function AuthScreen() {
             </View>
           )}
 
+          {/* Practice Info for Doctors (Optional) */}
+          {isSignUp && role === 'doctor' && (
+            <>
+              <View style={[styles.sectionDivider, { borderTopColor: colors.border }]}>
+                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Practice Info (Optional)</Text>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Name</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
+                  placeholder="e.g., BioLign Orthodontics"
+                  placeholderTextColor={colors.textSecondary}
+                  value={practiceName}
+                  onChangeText={setPracticeName}
+                  autoCapitalize="words"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Phone</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
+                  placeholder="(555) 123-4567"
+                  placeholderTextColor={colors.textSecondary}
+                  value={practicePhone}
+                  onChangeText={(text) => setPracticePhone(formatPhoneNumber(text))}
+                  keyboardType="phone-pad"
+                  maxLength={14}
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Address</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
+                  placeholder="e.g., 123 Main St, City, State"
+                  placeholderTextColor={colors.textSecondary}
+                  value={practiceAddress}
+                  onChangeText={setPracticeAddress}
+                  autoCapitalize="words"
+                />
+                <Text style={[styles.helpText, { color: colors.textSecondary }]}>
+                  You can add more details like office hours later in settings
+                </Text>
+              </View>
+            </>
+          )}
+
           <Button
             title={loading ? 'Loading...' : (isSignUp ? 'Create Account' : 'Sign In')}
             onPress={handleAuth}
@@ -365,6 +442,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
     marginTop: Spacing.xs,
+  },
+  sectionDivider: {
+    borderTopWidth: 1,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.md,
+    paddingTop: Spacing.md,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   primaryButton: {
     marginTop: Spacing.md,

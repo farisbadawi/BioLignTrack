@@ -106,6 +106,7 @@ interface EnhancedPatientState {
 
   // Treatment tracking
   todayWearMinutes: number
+  todayWearSeconds: number
   dailyLogs: any[]
   trayChanges: any[]
   currentSession: any | null
@@ -158,6 +159,8 @@ interface EnhancedPatientState {
   // =====================================================
   loadPatientData: () => Promise<void>
   loadDailyLogs: () => Promise<void>
+  logHoursForDate: (date: string, hours: number) => Promise<{ success: boolean; error?: string }>
+  getLogForDate: (date: string) => { date: string; hours: number } | null
   loadTrayChanges: () => Promise<void>
   loadAppointments: () => Promise<void>
   loadMessages: () => Promise<void>
@@ -168,11 +171,14 @@ interface EnhancedPatientState {
   startWearSession: () => Promise<void>
   stopWearSession: () => Promise<void>
   addWearMinutes: (minutes: number) => Promise<void>
+  addWearSecondsToDate: (seconds: number, dateStr: string) => Promise<void>
+  loadTodayWearTime: () => Promise<void>
 
   // =====================================================
   // TRAY MANAGEMENT ACTIONS
   // =====================================================
   logTrayChange: (trayNumber: number, fitStatus: string, notes?: string) => Promise<void>
+  revertToPreviousAligner: () => Promise<{ success: boolean; error?: string }>
   updateTreatmentInfo: (totalTrays: number, currentTray: number) => Promise<{ success: boolean; error?: string }>
 
   // =====================================================
@@ -246,7 +252,7 @@ interface EnhancedPatientState {
   // =====================================================
   getTodayLog: () => any
   getWeeklyProgress: () => { date: string; hours: number }[]
-  getComplianceStats: () => { weeklyAverage: number; monthlyAverage: number; streak: number }
+  getComplianceStats: () => { weeklyAverage: number; monthlyAverage: number; streak: number; treatmentStarted: boolean }
 }
 
 // =====================================================
@@ -260,6 +266,7 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   loading: false,
   error: null,
   todayWearMinutes: 0,
+  todayWearSeconds: 0,
   dailyLogs: [],
   trayChanges: [],
   currentSession: null,
@@ -602,6 +609,80 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
+  logHoursForDate: async (date: string, hours: number) => {
+    const { patient, currentBout } = get()
+    if (!patient?.id) {
+      return { success: false, error: 'No patient found' }
+    }
+
+    const wearMinutes = Math.round(hours * 60)
+    const today = new Date().toISOString().split('T')[0]
+
+    try {
+      // Check if log exists for this date
+      const { data: existing } = await supabase
+        .from('daily_logs')
+        .select('id, wear_minutes')
+        .eq('patient_id', patient.id)
+        .eq('date', date)
+        .single()
+
+      if (existing) {
+        // Update existing record
+        const { error } = await supabase
+          .from('daily_logs')
+          .update({ wear_minutes: wearMinutes })
+          .eq('id', existing.id)
+
+        if (error) throw error
+      } else {
+        // Insert new record
+        const { error } = await supabase
+          .from('daily_logs')
+          .insert({
+            patient_id: patient.id,
+            bout_id: currentBout?.id || null,
+            date: date,
+            wear_minutes: wearMinutes,
+            target_minutes: (patient.target_hours_per_day || 22) * 60,
+            comfort_level: 8,
+            fit_ok: true
+          })
+
+        if (error) throw error
+      }
+
+      // Update local state
+      if (date === today) {
+        set({ todayWearMinutes: wearMinutes })
+      }
+
+      // Reload daily logs to refresh the list
+      await get().loadDailyLogs()
+
+      return { success: true }
+    } catch (error) {
+      console.error('Log hours error:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  },
+
+  getLogForDate: (date: string) => {
+    const { dailyLogs, todayWearMinutes } = get()
+    const today = new Date().toISOString().split('T')[0]
+
+    if (date === today) {
+      return { date, hours: todayWearMinutes / 60 }
+    }
+
+    const log = dailyLogs.find(l => l.date === date)
+    if (log) {
+      return { date, hours: log.wear_minutes / 60 }
+    }
+
+    return null
+  },
+
   loadTrayChanges: async () => {
     const { patient } = get()
     if (!patient?.id) return
@@ -735,10 +816,13 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     const { currentSession, patient } = get()
     if (!currentSession || !patient?.id) return
 
+    const startTime = new Date(currentSession.startTime)
     const endTime = new Date()
-    const sessionMinutes = Math.floor((endTime.getTime() - currentSession.startTime.getTime()) / (1000 * 60))
+    const sessionSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000)
+    const sessionMinutes = Math.floor(sessionSeconds / 60)
 
     try {
+      // Update the wear session record
       await supabase
         .from('wear_sessions')
         .update({
@@ -748,7 +832,55 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         })
         .eq('id', currentSession.id)
 
-      await get().addWearMinutes(sessionMinutes)
+      // Split session across days if it crossed midnight
+      const startDate = startTime.toISOString().split('T')[0]
+      const endDate = endTime.toISOString().split('T')[0]
+
+      if (startDate === endDate) {
+        // Same day - add all seconds to today
+        await get().addWearSecondsToDate(sessionSeconds, endDate)
+      } else {
+        // Session crossed midnight - split across days
+        let currentDate = new Date(startTime)
+
+        while (currentDate.toISOString().split('T')[0] <= endDate) {
+          const dateStr = currentDate.toISOString().split('T')[0]
+
+          // Calculate seconds for this day
+          let dayStart: Date
+          let dayEnd: Date
+
+          if (dateStr === startDate) {
+            // First day: from session start to midnight
+            dayStart = startTime
+            dayEnd = new Date(currentDate)
+            dayEnd.setHours(23, 59, 59, 999)
+          } else if (dateStr === endDate) {
+            // Last day: from midnight to session end
+            dayStart = new Date(currentDate)
+            dayStart.setHours(0, 0, 0, 0)
+            dayEnd = endTime
+          } else {
+            // Middle day: full 24 hours
+            dayStart = new Date(currentDate)
+            dayStart.setHours(0, 0, 0, 0)
+            dayEnd = new Date(currentDate)
+            dayEnd.setHours(23, 59, 59, 999)
+          }
+
+          const secondsForDay = Math.floor((dayEnd.getTime() - dayStart.getTime()) / 1000)
+          if (secondsForDay > 0) {
+            await get().addWearSecondsToDate(secondsForDay, dateStr)
+          }
+
+          // Move to next day
+          currentDate.setDate(currentDate.getDate() + 1)
+          currentDate.setHours(0, 0, 0, 0)
+        }
+      }
+
+      // Reload today's data to get updated total
+      await get().loadTodayWearTime()
 
       set({ currentSession: null })
     } catch (error) {
@@ -806,13 +938,94 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
+  addWearSecondsToDate: async (seconds: number, dateStr: string) => {
+    const { patient, currentBout } = get()
+    if (!patient?.id || seconds <= 0) return
+
+    try {
+      // First try to get existing record for this date
+      const { data: existing } = await supabase
+        .from('daily_logs')
+        .select('id, wear_minutes, wear_seconds')
+        .eq('patient_id', patient.id)
+        .eq('date', dateStr)
+        .single()
+
+      if (existing) {
+        // Update existing record - add seconds and update minutes
+        const totalSeconds = (existing.wear_seconds || 0) + seconds
+        const totalMinutes = Math.floor(totalSeconds / 60)
+        const { error } = await supabase
+          .from('daily_logs')
+          .update({
+            wear_minutes: totalMinutes,
+            wear_seconds: totalSeconds,
+            bout_id: currentBout?.id,
+          })
+          .eq('id', existing.id)
+
+        if (error) throw error
+      } else {
+        // Insert new record
+        const { error } = await supabase
+          .from('daily_logs')
+          .insert({
+            patient_id: patient.id,
+            bout_id: currentBout?.id,
+            date: dateStr,
+            wear_minutes: Math.floor(seconds / 60),
+            wear_seconds: seconds,
+            target_minutes: (patient.target_hours_per_day || 22) * 60,
+            comfort_level: 8,
+            fit_ok: true
+          })
+
+        if (error) throw error
+      }
+    } catch (error) {
+      console.error('Add wear seconds to date error:', error)
+    }
+  },
+
+  loadTodayWearTime: async () => {
+    const { patient } = get()
+    if (!patient?.id) return
+
+    const today = new Date().toISOString().split('T')[0]
+
+    try {
+      const { data } = await supabase
+        .from('daily_logs')
+        .select('wear_minutes, wear_seconds')
+        .eq('patient_id', patient.id)
+        .eq('date', today)
+        .single()
+
+      // Use wear_seconds if available, otherwise fall back to wear_minutes * 60
+      const seconds = data?.wear_seconds ?? (data?.wear_minutes || 0) * 60
+      set({ todayWearMinutes: Math.floor(seconds / 60), todayWearSeconds: seconds })
+    } catch (error) {
+      // No record for today yet, that's fine
+      set({ todayWearMinutes: 0, todayWearSeconds: 0 })
+    }
+  },
+
   // =====================================================
   // TRAY MANAGEMENT METHODS
   // =====================================================
 
   logTrayChange: async (trayNumber: number, fitStatus: string, notes?: string) => {
-    const { patient, profile, currentBout } = get()
+    const { patient, profile, currentBout, trayChanges } = get()
     if (!patient?.id || !profile?.id) return
+
+    // Check for duplicate - don't create if same tray number already exists for this bout
+    const existingChange = trayChanges.find(
+      tc => tc.tray_number === trayNumber && tc.bout_id === currentBout?.id
+    )
+    if (existingChange) {
+      console.log('Duplicate tray change prevented')
+      return
+    }
 
     try {
       await supabase
@@ -838,6 +1051,62 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       await get().loadTrayChanges()
     } catch (error) {
       console.error('Log tray change error:', error)
+    }
+  },
+
+  revertToPreviousAligner: async () => {
+    const { patient, trayChanges, currentBout } = get()
+    if (!patient?.id) {
+      return { success: false, error: 'No patient record found' }
+    }
+
+    if (patient.current_tray <= 1) {
+      return { success: false, error: 'Already on the first aligner' }
+    }
+
+    try {
+      // Find the most recent tray change for the current aligner
+      const currentTrayChanges = trayChanges
+        .filter(tc => tc.tray_number === patient.current_tray && tc.bout_id === currentBout?.id)
+        .sort((a, b) => new Date(b.date_changed).getTime() - new Date(a.date_changed).getTime())
+
+      // Delete the most recent tray change entry if it exists
+      if (currentTrayChanges.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('tray_changes')
+          .delete()
+          .eq('id', currentTrayChanges[0].id)
+
+        if (deleteError) {
+          console.error('Delete tray change error:', deleteError)
+          return { success: false, error: deleteError.message }
+        }
+      }
+
+      // Update patient's current tray to previous
+      const previousTray = patient.current_tray - 1
+      const { error: updateError } = await supabase
+        .from('patients')
+        .update({ current_tray: previousTray })
+        .eq('id', patient.id)
+
+      if (updateError) {
+        console.error('Update patient tray error:', updateError)
+        return { success: false, error: updateError.message }
+      }
+
+      // Update local state
+      set((state) => ({
+        patient: state.patient ? { ...state.patient, current_tray: previousTray } : null,
+      }))
+
+      // Reload tray changes
+      await get().loadTrayChanges()
+
+      return { success: true }
+    } catch (error: any) {
+      console.error('Revert aligner error:', error)
+      return { success: false, error: error.message || 'Failed to revert aligner' }
     }
   },
 
@@ -1380,7 +1649,25 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         return { success: false, error: 'Failed to link to doctor' }
       }
 
-      set({ assignedDoctor: doctor })
+      // Set treatment_start_date when patient links to doctor (this starts compliance tracking)
+      const { patient } = get()
+      if (patient && !patient.treatment_start_date) {
+        const today = new Date().toISOString().split('T')[0]
+        await supabase
+          .from('patients')
+          .update({ treatment_start_date: today })
+          .eq('id', patient.id)
+
+        set((state) => ({
+          patient: state.patient ? {
+            ...state.patient,
+            treatment_start_date: today
+          } : null
+        }))
+      }
+
+      // Reload assigned doctor with full practice info
+      await get().loadAssignedDoctor()
       return { success: true }
     } catch (error) {
       return { success: false, error: (error as Error).message }
@@ -2062,10 +2349,23 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   getWeeklyProgress: () => {
-    const { dailyLogs, todayWearMinutes } = get()
+    const { dailyLogs, todayWearSeconds, patient, currentSession } = get()
     const days = []
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
+    const treatmentStartDate = patient?.treatment_start_date
+
+    // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+    const getLogSeconds = (log: any) => {
+      if (log.wear_seconds != null) return log.wear_seconds
+      return (log.wear_minutes || 0) * 60
+    }
+
+    // Calculate current session elapsed time if timer is running (in seconds)
+    let currentSessionSeconds = 0
+    if (currentSession?.startTime) {
+      currentSessionSeconds = Math.floor((new Date().getTime() - currentSession.startTime.getTime()) / 1000)
+    }
 
     // Get Monday of current week
     const currentDayOfWeek = today.getDay()
@@ -2079,13 +2379,19 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       date.setDate(monday.getDate() + i)
       const dateStr = date.toISOString().split('T')[0]
 
+      // Only count days on or after treatment_start_date
+      const isBeforeTreatment = treatmentStartDate && dateStr < treatmentStartDate
+
       const log = dailyLogs.find(l => l.date === dateStr)
       let hours = 0
 
-      if (dateStr === todayStr) {
-        hours = todayWearMinutes / 60
-      } else if (log) {
-        hours = log.wear_minutes / 60
+      if (!isBeforeTreatment) {
+        if (dateStr === todayStr) {
+          // Include both saved seconds and current session elapsed time
+          hours = ((todayWearSeconds || 0) + currentSessionSeconds) / 3600
+        } else if (log) {
+          hours = getLogSeconds(log) / 3600
+        }
       }
 
       days.push({
@@ -2097,33 +2403,91 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   getComplianceStats: () => {
-    const { dailyLogs, patient } = get()
-    const targetMinutes = (patient?.target_hours_per_day || 22) * 60
+    const { dailyLogs, patient, assignedDoctor } = get()
+    const targetSeconds = (patient?.target_hours_per_day || 22) * 3600
+    const treatmentStartDate = patient?.treatment_start_date
 
-    // Calculate weekly average
-    const weeklyLogs = dailyLogs.slice(0, 7)
-    const weeklyTotal = weeklyLogs.reduce((sum, log) => sum + (log.wear_minutes || 0), 0)
-    const weeklyAverage = weeklyLogs.length > 0 ? weeklyTotal / weeklyLogs.length / 60 : 0
+    // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+    const getLogSeconds = (log: any) => {
+      if (log.wear_seconds != null) return log.wear_seconds
+      return (log.wear_minutes || 0) * 60
+    }
 
-    // Calculate monthly average
-    const monthlyLogs = dailyLogs.slice(0, 30)
-    const monthlyTotal = monthlyLogs.reduce((sum, log) => sum + (log.wear_minutes || 0), 0)
-    const monthlyAverage = monthlyLogs.length > 0 ? monthlyTotal / monthlyLogs.length / 60 : 0
+    // If no treatment started yet, return zeros
+    if (!treatmentStartDate || !assignedDoctor) {
+      return {
+        weeklyAverage: 0,
+        monthlyAverage: 0,
+        streak: 0,
+        treatmentStarted: false
+      }
+    }
 
-    // Calculate streak (consecutive days meeting target)
+    // Find first log date - this is when tracking actually started
+    const sortedLogs = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date))
+    const firstLogDate = sortedLogs.length > 0 ? sortedLogs[0].date : null
+
+    if (!firstLogDate) {
+      return {
+        weeklyAverage: 0,
+        monthlyAverage: 0,
+        streak: 0,
+        treatmentStarted: true
+      }
+    }
+
+    const today = new Date()
+    const todayStr = today.toISOString().split('T')[0]
+    const firstLogDateObj = new Date(firstLogDate)
+    const daysSinceFirstLog = Math.max(1, Math.floor((today.getTime() - firstLogDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+
+    // Calculate weekly average (last 7 days or since first log, whichever is shorter)
+    // Every calendar day counts - days without logs count as 0 hours
+    const sevenDaysAgo = new Date(today)
+    sevenDaysAgo.setDate(today.getDate() - 6) // -6 to include today = 7 days
+    const weekStartDate = firstLogDate > sevenDaysAgo.toISOString().split('T')[0] ? firstLogDate : sevenDaysAgo.toISOString().split('T')[0]
+    const weekStartDateObj = new Date(weekStartDate)
+    const daysInWeekPeriod = Math.max(1, Math.floor((today.getTime() - weekStartDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+
+    const weeklyLogs = dailyLogs.filter(log => log.date >= weekStartDate && log.date <= todayStr)
+    const weeklyTotalSeconds = weeklyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0)
+    const weeklyAverage = weeklyTotalSeconds / daysInWeekPeriod / 3600
+
+    // Calculate monthly average (last 30 days or since first log, whichever is shorter)
+    const thirtyDaysAgo = new Date(today)
+    thirtyDaysAgo.setDate(today.getDate() - 29) // -29 to include today = 30 days
+    const monthStartDate = firstLogDate > thirtyDaysAgo.toISOString().split('T')[0] ? firstLogDate : thirtyDaysAgo.toISOString().split('T')[0]
+    const monthStartDateObj = new Date(monthStartDate)
+    const daysInMonthPeriod = Math.max(1, Math.floor((today.getTime() - monthStartDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+
+    const monthlyLogs = dailyLogs.filter(log => log.date >= monthStartDate && log.date <= todayStr)
+    const monthlyTotalSeconds = monthlyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0)
+    const monthlyAverage = monthlyTotalSeconds / daysInMonthPeriod / 3600
+
+    // Calculate streak - check each CALENDAR day going backwards from yesterday
+    // Use 50% of target as threshold, consistent with other pages
+    const minimumSecondsForDay = targetSeconds * 0.5
     let streak = 0
-    for (const log of dailyLogs) {
-      if ((log.wear_minutes || 0) >= targetMinutes * 0.9) {
+    const checkDate = new Date(today)
+    checkDate.setDate(checkDate.getDate() - 1) // Start from yesterday
+
+    while (true) {
+      const dateStr = checkDate.toISOString().split('T')[0]
+      const log = dailyLogs.find(l => l.date === dateStr)
+
+      if (log && getLogSeconds(log) >= minimumSecondsForDay) {
         streak++
+        checkDate.setDate(checkDate.getDate() - 1) // Go back one more day
       } else {
-        break
+        break // No qualifying log for this day - streak ends
       }
     }
 
     return {
       weeklyAverage: Math.round(weeklyAverage * 10) / 10,
       monthlyAverage: Math.round(monthlyAverage * 10) / 10,
-      streak
+      streak,
+      treatmentStarted: true
     }
   },
 }))
