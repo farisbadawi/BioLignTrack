@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "com.bioligntrack",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -39,6 +39,14 @@
         {
           "photosPermission": "Allow BioLign Progress to access your photos to track your smile transformation.",
           "cameraPermission": "Allow BioLign Progress to use your camera to take progress photos of your teeth."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#4A90A4",
+          "sounds": []
         }
       ]
     ],

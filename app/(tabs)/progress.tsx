@@ -1,6 +1,6 @@
 // app/(tabs)/progress.tsx - COMPLETE FILE WITH REAL DATA
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions, Animated, PanResponder } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TrendingUp, Calendar, Clock, Award, AlertCircle, UserPlus, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { TouchableOpacity } from 'react-native';
@@ -17,7 +17,6 @@ export default function ProgressScreen() {
   const { colors } = useTheme();
   const [, setTick] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, -1 = last week, etc.
-  const translateX = useRef(new Animated.Value(0)).current;
 
   // Update chart every 30 seconds while timer is running
   useEffect(() => {
@@ -30,12 +29,20 @@ export default function ProgressScreen() {
     return () => clearInterval(interval);
   }, [currentSession]);
 
+  // Get local date string (YYYY-MM-DD) to avoid timezone issues
+  const getLocalDateStr = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Get weekly data for a specific week offset
   const getWeekData = (offset: number) => {
     const days = [];
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const treatmentStartDate = patient?.treatment_start_date;
+    const todayStr = getLocalDateStr(today);
+    const treatmentStartDate = patient?.startDate;
 
     // Calculate current session elapsed time if timer is running (in seconds)
     let currentSessionSeconds = 0;
@@ -53,7 +60,7 @@ export default function ProgressScreen() {
     for (let i = 0; i < 7; i++) {
       const date = new Date(monday);
       date.setDate(monday.getDate() + i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = getLocalDateStr(date);
 
       // Only count days on or after treatment_start_date
       const isBeforeTreatment = treatmentStartDate && dateStr < treatmentStartDate;
@@ -68,7 +75,7 @@ export default function ProgressScreen() {
           hours = ((todayWearSeconds || 0) + currentSessionSeconds) / 3600;
         } else if (log) {
           // Use getLogSeconds for historical days
-          const logSeconds = log.wear_seconds != null ? log.wear_seconds : (log.wear_minutes || 0) * 60;
+          const logSeconds = log.wearSeconds != null ? log.wearSeconds : (log.wearMinutes || 0) * 60;
           hours = logSeconds / 3600;
         }
       }
@@ -101,50 +108,28 @@ export default function ProgressScreen() {
     return `${monthNames[monday.getMonth()]} ${monday.getDate()} - ${sunday.getDate()}`;
   };
 
-  // Swipe handlers
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 20;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        translateX.setValue(gestureState.dx);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx > 50) {
-          // Swiped right - go to previous week
-          setWeekOffset(prev => prev - 1);
-        } else if (gestureState.dx < -50 && weekOffset < 0) {
-          // Swiped left - go to next week (but not beyond current week)
-          setWeekOffset(prev => prev + 1);
-        }
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: true,
-        }).start();
-      },
-    })
-  ).current;
-
   const goToPreviousWeek = () => setWeekOffset(prev => prev - 1);
-  const goToNextWeek = () => weekOffset < 0 && setWeekOffset(prev => prev + 1);
+  const goToNextWeek = () => setWeekOffset(prev => Math.min(prev + 1, 0));
 
   if (!patient) return null;
 
   // Check if treatment has started
-  const treatmentStarted = !!assignedDoctor && !!patient.treatment_start_date;
+  const treatmentStarted = !!assignedDoctor && !!patient.startDate;
 
-  // Helper to get seconds from log entry (uses wear_seconds if available, otherwise wear_minutes * 60)
+  // Get target hours (dailyWearTarget is in minutes)
+  const targetHoursPerDay = (patient.dailyWearTarget || 1320) / 60;
+
+  // Helper to get seconds from log entry (uses wearSeconds if available, otherwise wearMinutes * 60)
   const getLogSeconds = (log: any) => {
-    if (log.wear_seconds != null) return log.wear_seconds;
-    return (log.wear_minutes || 0) * 60;
+    if (log.wearSeconds != null) return log.wearSeconds;
+    return (log.wearMinutes || 0) * 60;
   };
 
   // Calculate real statistics from data
   const calculateStats = () => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const targetSeconds = patient.target_hours_per_day * 3600;
+    const todayStr = getLocalDateStr(today);
+    const targetSeconds = targetHoursPerDay * 3600;
 
     // Find the first day with logged data - this is when tracking actually started
     const sortedLogs = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date));
@@ -157,7 +142,8 @@ export default function ProgressScreen() {
     // Weekly stats - from first log or last 7 days, whichever is later
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 6); // -6 to include today = 7 days
-    const weekStart = firstLogDate > sevenDaysAgo.toISOString().split('T')[0] ? firstLogDate : sevenDaysAgo.toISOString().split('T')[0];
+    const sevenDaysAgoStr = getLocalDateStr(sevenDaysAgo);
+    const weekStart = firstLogDate > sevenDaysAgoStr ? firstLogDate : sevenDaysAgoStr;
     const weekStartDate = new Date(weekStart);
     const daysInWeek = Math.max(1, Math.floor((today.getTime() - weekStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
@@ -177,7 +163,7 @@ export default function ProgressScreen() {
     checkDate.setDate(checkDate.getDate() - 1); // Start from yesterday
 
     while (true) {
-      const dateStr = checkDate.toISOString().split('T')[0];
+      const dateStr = getLocalDateStr(checkDate);
       const log = dailyLogs.find(l => l.date === dateStr);
 
       if (log && getLogSeconds(log) >= minimumSecondsForDay) {
@@ -223,12 +209,12 @@ export default function ProgressScreen() {
 
     // On-time tray changes
     const sortedTrayChanges = [...trayChanges].sort((a, b) =>
-      new Date(a.date_changed).getTime() - new Date(b.date_changed).getTime()
+      new Date(a.changeDate).getTime() - new Date(b.changeDate).getTime()
     );
     let onTimeChanges = 0;
     for (let i = 1; i < sortedTrayChanges.length; i++) {
-      const prevChange = new Date(sortedTrayChanges[i - 1].date_changed);
-      const currentChange = new Date(sortedTrayChanges[i].date_changed);
+      const prevChange = new Date(sortedTrayChanges[i - 1].changeDate);
+      const currentChange = new Date(sortedTrayChanges[i].changeDate);
       const daysBetween = (currentChange.getTime() - prevChange.getTime()) / (1000 * 60 * 60 * 24);
       if (daysBetween >= 12 && daysBetween <= 16) {
         onTimeChanges++;
@@ -250,14 +236,14 @@ export default function ProgressScreen() {
       for (let i = 0; i < daysInTreatment; i++) {
         const checkDate = new Date(firstLogDateObj);
         checkDate.setDate(firstLogDateObj.getDate() + i);
-        const checkDateStr = checkDate.toISOString().split('T')[0];
+        const checkDateStr = getLocalDateStr(checkDate);
 
         // Find log for this date
         const dayLog = dailyLogs.find(log => log.date === checkDateStr);
         const hoursWorn = dayLog ? getLogSeconds(dayLog) / 3600 : 0;
 
         // Daily score: hours worn / target, capped at 100%
-        const dailyScore = Math.min(hoursWorn / patient.target_hours_per_day, 1);
+        const dailyScore = Math.min(hoursWorn / targetHoursPerDay, 1);
         totalComplianceScore += dailyScore;
       }
 
@@ -270,7 +256,8 @@ export default function ProgressScreen() {
     // Monthly average - from first log or last 30 days, whichever is later
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(today.getDate() - 29); // -29 to include today = 30 days
-    const monthStart = firstLogDate > thirtyDaysAgo.toISOString().split('T')[0] ? firstLogDate : thirtyDaysAgo.toISOString().split('T')[0];
+    const thirtyDaysAgoStr = getLocalDateStr(thirtyDaysAgo);
+    const monthStart = firstLogDate > thirtyDaysAgoStr ? firstLogDate : thirtyDaysAgoStr;
     const monthStartDate = new Date(monthStart);
     const daysInMonth = Math.max(1, Math.floor((today.getTime() - monthStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
 
@@ -281,9 +268,8 @@ export default function ProgressScreen() {
     const monthlyAverage = monthlyTotalSeconds / daysInMonth / 3600;
 
     // Trays completed this month
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
     const monthlyTrayChanges = trayChanges.filter(change =>
-      change.date_changed >= thirtyDaysAgoStr && change.date_changed <= todayStr
+      change.changeDate >= thirtyDaysAgoStr && change.changeDate <= todayStr
     );
 
     return {
@@ -303,21 +289,23 @@ export default function ProgressScreen() {
   const chartScale = 0.92; // Scale bars to 92% so there's visual headroom at top
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
+    // Parse as local date to avoid timezone issues
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
     return date.toLocaleDateString('en-US', { weekday: 'short' });
   };
 
   // Generate insights based on real data
   const generateInsights = () => {
     const insights = [];
-    const targetHours = patient.target_hours_per_day;
+    const targetHours = targetHoursPerDay;
 
     // Consistency insight
     const weeklyLogs = dailyLogs.filter(log => {
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const oneWeekAgo = getLocalDateStr(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
       return log.date >= oneWeekAgo;
     });
-    const daysMetTarget = weeklyLogs.filter(log => log.wear_minutes >= targetHours * 60).length;
+    const daysMetTarget = weeklyLogs.filter(log => (log.wearMinutes || 0) >= targetHours * 60).length;
 
     if (daysMetTarget >= 5) {
       insights.push({
@@ -350,9 +338,9 @@ export default function ProgressScreen() {
     });
 
     const weekendAvg = weekendLogs.length > 0 ?
-      weekendLogs.reduce((sum, log) => sum + log.wear_minutes, 0) / weekendLogs.length / 60 : 0;
+      weekendLogs.reduce((sum, log) => sum + (log.wearMinutes || 0), 0) / weekendLogs.length / 60 : 0;
     const weekdayAvg = weekdayLogs.length > 0 ?
-      weekdayLogs.reduce((sum, log) => sum + log.wear_minutes, 0) / weekdayLogs.length / 60 : 0;
+      weekdayLogs.reduce((sum, log) => sum + (log.wearMinutes || 0), 0) / weekdayLogs.length / 60 : 0;
 
     if (weekendAvg < weekdayAvg - 2) {
       insights.push({
@@ -363,21 +351,21 @@ export default function ProgressScreen() {
     }
 
     // Treatment progress - use incremental calculation based on qualifying days
-    const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
-    const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+    const currentTrayChange = trayChanges.find(change => change.toTray === patient.currentTray);
+    const trayStartDate = currentTrayChange ? getLocalDateStr(new Date(currentTrayChange.changeDate)) : null;
     const minMinutesForDay = targetHours * 60 * 0.5; // 50% of target
     const recommendedDays = 14;
 
     const qualifyingDaysWorn = trayStartDate
       ? dailyLogs.filter(log => {
           if (log.date < trayStartDate) return false;
-          return (log.wear_minutes || 0) >= minMinutesForDay;
+          return (log.wearMinutes || 0) >= minMinutesForDay;
         }).length
       : 0;
 
-    const completedAligners = patient.current_tray - 1;
+    const completedAligners = patient.currentTray - 1;
     const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
-    const progressPercentage = Math.round(((completedAligners + currentAlignerProgress) / patient.total_trays) * 100);
+    const progressPercentage = Math.round(((completedAligners + currentAlignerProgress) / patient.totalTrays) * 100);
 
     insights.push({
       type: 'primary',
@@ -391,7 +379,7 @@ export default function ProgressScreen() {
   const insights = generateInsights();
 
   // Get today's date string for comparison
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateStr(new Date());
 
   const BarChart = () => (
     <View style={styles.chartContainer}>
@@ -412,10 +400,7 @@ export default function ProgressScreen() {
         </View>
       </View>
 
-      <Animated.View
-        style={[styles.chart, { transform: [{ translateX }] }]}
-        {...panResponder.panHandlers}
-      >
+      <View style={styles.chart}>
         <View style={styles.yAxis}>
           <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours)}h</Text>
           <Text style={[styles.yAxisLabel, { color: colors.textSecondary }]}>{Math.ceil(maxHours * 0.75)}h</Text>
@@ -424,7 +409,7 @@ export default function ProgressScreen() {
         </View>
 
         <View style={styles.chartArea}>
-          {/* Grid lines at 6h, 12h, 18h, 24h */}
+          {/* Grid lines */}
           <View style={[styles.gridLine, { bottom: `${25 * chartScale}%`, backgroundColor: colors.border }]} />
           <View style={[styles.gridLine, { bottom: `${50 * chartScale}%`, backgroundColor: colors.border }]} />
           <View style={[styles.gridLine, { bottom: `${75 * chartScale}%`, backgroundColor: colors.border }]} />
@@ -435,20 +420,18 @@ export default function ProgressScreen() {
             style={[
               styles.targetLine,
               {
-                bottom: `${(patient.target_hours_per_day / maxHours) * 100 * chartScale}%`,
+                bottom: `${(targetHoursPerDay / maxHours) * 100 * chartScale}%`,
                 backgroundColor: colors.primary,
               }
             ]}
           />
 
-          {/* Bars - using absolute positioning like target line for accurate alignment */}
+          {/* Bars */}
           <View style={styles.barsAbsolute}>
             {weeklyData.map((data) => {
               const barHeight = (data.hours / maxHours) * 100 * chartScale;
               const isToday = data.date === todayStr && weekOffset === 0;
-              const meetsTarget = data.hours >= patient.target_hours_per_day;
-
-              // Only show visual highlight for today if there are actual hours logged
+              const meetsTarget = data.hours >= targetHoursPerDay;
               const showTodayHighlight = isToday && data.hours > 0;
 
               return (
@@ -460,7 +443,7 @@ export default function ProgressScreen() {
                         height: `${barHeight}%`,
                         backgroundColor: data.hours === 0 ? 'transparent' :
                                        meetsTarget ? colors.success :
-                                       data.hours >= patient.target_hours_per_day * 0.8 ? colors.warning :
+                                       data.hours >= targetHoursPerDay * 0.8 ? colors.warning :
                                        colors.error,
                       },
                       showTodayHighlight && [styles.todayBar, { borderColor: colors.primary }],
@@ -471,9 +454,9 @@ export default function ProgressScreen() {
             })}
           </View>
         </View>
-      </Animated.View>
+      </View>
 
-      {/* Labels row - separate from chart area */}
+      {/* Labels */}
       <View style={styles.labelsRow}>
         <View style={styles.yAxisSpacer} />
         {weeklyData.map((data) => {
@@ -639,7 +622,7 @@ export default function ProgressScreen() {
               ]} />
             </View>
             <Text style={[styles.summaryProgressText, { color: colors.textSecondary }]}>
-              Avg {Math.round(stats.complianceRate)}% of {patient.target_hours_per_day}h daily target
+              Avg {Math.round(stats.complianceRate)}% of {targetHoursPerDay}h daily target
             </Text>
           </View>
 

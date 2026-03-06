@@ -71,11 +71,14 @@ interface AppointmentData {
 }
 
 export default function AppointmentsScreen() {
-  const { appointments, userRole, assignedDoctor, practiceInfo, savePracticeInfo, loadAssignedDoctor } = usePatientStore();
+  const { userType, assignedDoctor, practiceInfo, savePracticeInfo, loadAssignedDoctor } = usePatientStore();
   const { colors } = useTheme();
   const [calendlyInput, setCalendlyInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Appointments are not supported in standalone mode - would need PMS integration
+  const appointments: any[] = [];
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -88,12 +91,12 @@ export default function AppointmentsScreen() {
     }
   };
 
-  // Get doctor's practice info (for patients)
-  const practicePhone = assignedDoctor?.practice_phone || null;
-  const practiceAddress = assignedDoctor?.practice_address || null;
-  const practiceName = assignedDoctor?.practice_name || 'Your Orthodontist';
-  const calendlyUrl = assignedDoctor?.calendly_url || null;
-  const officeHours = assignedDoctor?.office_hours || null;
+  // Get doctor's practice info (for patients) - use camelCase from API
+  const practicePhone = assignedDoctor?.practicePhone || null;
+  const practiceAddress = assignedDoctor?.practiceAddress || null;
+  const practiceName = assignedDoctor?.practiceName || 'Your Orthodontist';
+  const calendlyUrl = assignedDoctor?.calendlyUrl || null;
+  const officeHours = assignedDoctor?.officeHours || null;
 
   // Handle scheduling - always go to book-appointment screen (it handles missing Calendly gracefully)
   const handleSchedule = () => {
@@ -242,18 +245,18 @@ export default function AppointmentsScreen() {
   );
 
   const getPageTitle = () => {
-    return userRole === 'doctor' ? 'Patient Appointments' : 'Appointments';
+    return userType === 'standalone_doctor' ? 'Patient Appointments' : 'Appointments';
   };
 
   const getSubtitle = () => {
-    if (userRole === 'doctor') {
+    if (userType === 'standalone_doctor') {
       return `${upcomingAppointments.length} upcoming patient appointments`;
     }
     return `${upcomingAppointments.length} upcoming appointments`;
   };
 
   // Doctor view
-  if (userRole === 'doctor') {
+  if (userType === 'standalone_doctor') {
     const doctorCalendlyUrl = practiceInfo?.calendly_url || null;
 
     return (
@@ -829,6 +832,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     fontSize: 14,
+
   },
   viewBookingsButton: {
     flexDirection: 'row',

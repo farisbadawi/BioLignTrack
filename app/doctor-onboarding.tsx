@@ -262,6 +262,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     fontSize: 16,
+
   },
   multilineInput: {
     minHeight: 80,

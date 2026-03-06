@@ -22,7 +22,6 @@ function PatientDashboard() {
     profile,
     todayWearMinutes,
     todayWearSeconds,
-    unreadMessages,
     currentSession,
     getWeeklyProgress,
     startWearSession,
@@ -31,6 +30,7 @@ function PatientDashboard() {
     trayChanges,
     dailyLogs
   } = usePatientStore();
+  const unreadMessages = 0; // TODO: Implement messaging
   const { colors } = useTheme();
   const [showLogHoursModal, setShowLogHoursModal] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -78,10 +78,10 @@ function PatientDashboard() {
   };
 
   // Check if treatment has started (patient linked to doctor)
-  const treatmentStarted = !!assignedDoctor && !!patient.treatment_start_date;
+  const treatmentStarted = !!assignedDoctor && !!patient.startDate;
 
   const weeklyData = getWeeklyProgress();
-  const targetHours = patient.target_hours_per_day;
+  const targetHours = (patient.dailyWearTarget || 1320) / 60; // Convert minutes to hours
 
   // Calculate total today's time including current session
   // todayWearSeconds comes from database, sessionSeconds is current active session
@@ -90,16 +90,16 @@ function PatientDashboard() {
   const progress = Math.min(totalTodayHours / targetHours, 1);
 
   // Calculate qualifying days worn (days with at least 50% of target wear time)
-  const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
-  const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
-  const targetSeconds = (patient.target_hours_per_day || 22) * 3600;
+  const currentTrayChange = trayChanges.find(change => change.toTray === patient.currentTray);
+  const trayStartDate = currentTrayChange ? new Date(currentTrayChange.changeDate).toISOString().split('T')[0] : null;
+  const targetSeconds = (patient.dailyWearTarget || 1320) * 60; // dailyWearTarget is in minutes
   const minimumSecondsForDay = targetSeconds * 0.5; // 50% of target = ~11 hours
   const recommendedDays = 14;
 
-  // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+  // Helper to get seconds from log (uses wearSeconds if available, otherwise wearMinutes * 60)
   const getLogSeconds = (log: any) => {
-    if (log.wear_seconds != null) return log.wear_seconds;
-    return (log.wear_minutes || 0) * 60;
+    if (log.wearSeconds != null) return log.wearSeconds;
+    return (log.wearMinutes || 0) * 60;
   };
 
   const qualifyingDaysWorn = trayStartDate
@@ -129,9 +129,9 @@ function PatientDashboard() {
   }
 
   // Calculate incremental progress based on completed aligners + qualifying days on current
-  const completedAligners = patient.current_tray - 1;
+  const completedAligners = patient.currentTray - 1;
   const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
-  const progressPercentage = Math.round(((completedAligners + currentAlignerProgress) / patient.total_trays) * 100);
+  const progressPercentage = Math.round(((completedAligners + currentAlignerProgress) / patient.totalTrays) * 100);
 
   // Calculate weekly average - based on days since first log (not always 7)
   const sortedLogs = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date));
@@ -282,7 +282,7 @@ function PatientDashboard() {
           <QuickStatCard
             icon={Package}
             title="Current Tray"
-            value={`${patient.current_tray}/${patient.total_trays}`}
+            value={`${patient.currentTray}/${patient.totalTrays}`}
             subtitle={`${progressPercentage}% complete`}
             onPress={() => router.push('/tray')}
           />
@@ -428,7 +428,6 @@ function DoctorDashboard() {
   const {
     profile,
     assignedPatients,
-    unreadMessages,
     invitations
   } = usePatientStore();
   const { colors } = useTheme();
@@ -445,15 +444,13 @@ function DoctorDashboard() {
 
   const activePatients = assignedPatients.length;
   const pendingInvitations = invitations.filter(inv => inv.status === 'pending').length;
+  const unreadMessages = 0; // TODO: Implement messaging
 
   const urgentPatients = assignedPatients.filter(patient => {
-    const patientData = patient.patientData;
-    if (!patientData) return false;
-    const daysSinceStart = patientData.treatment_start_date
-      ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
-      : 0;
-    const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays);
-    return patientData.current_tray < expectedTray - 1;
+    if (!patient.startDate) return false;
+    const daysSinceStart = Math.floor((Date.now() - new Date(patient.startDate).getTime()) / (1000 * 60 * 60 * 24));
+    const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patient.totalTrays || 24);
+    return patient.currentTray < expectedTray - 1;
   }).length;
 
   const StatCard = ({ icon: Icon, title, value, subtitle, color = colors.primary, onPress }: any) => (
@@ -551,7 +548,7 @@ function DoctorDashboard() {
 
 // Main Component with Role Detection
 export default function HomeScreen() {
-  const { userRole, loading, profile } = usePatientStore();
+  const { userType, loading, profile } = usePatientStore();
   const { colors } = useTheme();
 
   if (loading || !profile) {
@@ -565,7 +562,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (userRole === 'doctor') {
+  if (userType === 'standalone_doctor') {
     return <DoctorDashboard />;
   }
 

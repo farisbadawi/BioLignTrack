@@ -13,7 +13,7 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: 'system',
+  theme: 'light',
   isDark: false,
   colors: LightColors,
   setTheme: () => {},
@@ -28,7 +28,7 @@ interface ThemeProviderProps {
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const systemColorScheme = useColorScheme();
   const { userSettings, updateUserSettings } = usePatientStore();
-  const [theme, setThemeState] = useState<ThemeMode>('system');
+  const [theme, setThemeState] = useState<ThemeMode>('light');
 
   // Sync with store settings
   useEffect(() => {

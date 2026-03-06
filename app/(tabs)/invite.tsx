@@ -11,7 +11,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '@/contexts/ThemeContext';
 
 export default function InviteScreen() {
-  const { userRole, getDoctorCode, assignedPatients } = usePatientStore();
+  const { userType, getDoctorCode, assignedPatients } = usePatientStore();
   const [doctorCode, setDoctorCode] = useState<string | null>(null);
   const [loadingCode, setLoadingCode] = useState(true);
   const { showAlert, AlertComponent } = useCustomAlert();
@@ -19,7 +19,7 @@ export default function InviteScreen() {
 
   useEffect(() => {
     const fetchDoctorCode = async () => {
-      if (userRole === 'doctor') {
+      if (userType === 'standalone_doctor') {
         setLoadingCode(true);
         const code = await getDoctorCode?.();
         setDoctorCode(code || null);
@@ -27,10 +27,10 @@ export default function InviteScreen() {
       }
     };
     fetchDoctorCode();
-  }, [userRole, getDoctorCode]);
+  }, [userType, getDoctorCode]);
 
   // Only show this screen for doctors
-  if (userRole !== 'doctor') {
+  if (userType !== 'standalone_doctor') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <View style={styles.errorContainer}>

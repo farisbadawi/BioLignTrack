@@ -7,35 +7,20 @@ import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { router } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useTheme } from '@/contexts/ThemeContext';
 
 export default function PatientsScreen() {
-  const { assignedPatients, userRole, loadAssignedPatients, profile } = usePatientStore();
+  const { assignedPatients, userType, loadAssignedPatients, profile } = usePatientStore();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const { colors } = useTheme();
 
-  // Set up real-time subscription for new patients
+  // Load patients on mount
   useEffect(() => {
-    if (!profile || userRole !== 'doctor') return;
-
-    const subscription = supabase
-      .channel('patients-list')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'doctor_patients',
-        filter: `doctor_id=eq.${profile.id}`
-      }, () => {
-        loadAssignedPatients();
-      })
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [profile, userRole, loadAssignedPatients]);
+    if (userType === 'standalone_doctor') {
+      loadAssignedPatients();
+    }
+  }, [userType, loadAssignedPatients]);
 
   // Filter patients by search query
   const filteredPatients = useMemo(() => {
@@ -53,7 +38,7 @@ export default function PatientsScreen() {
   };
 
   // Only show this screen for doctors
-  if (userRole !== 'doctor') {
+  if (userType !== 'standalone_doctor') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
         <View style={styles.errorContainer}>
@@ -64,14 +49,13 @@ export default function PatientsScreen() {
   }
 
   const PatientCard = ({ patient }: { patient: any }) => {
-    const patientData = patient.patientData;
-    const daysSinceStart = patientData?.treatment_start_date
-      ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+    // Patient data uses camelCase from the PMS API
+    const daysSinceStart = patient.startDate
+      ? Math.floor((Date.now() - new Date(patient.startDate).getTime()) / (1000 * 60 * 60 * 24))
       : 0;
-    const expectedTray = patientData
-      ? Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays || 24)
-      : 1;
-    const currentTray = patientData?.current_tray || 1;
+    const totalTrays = patient.totalTrays || 24;
+    const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, totalTrays);
+    const currentTray = patient.currentTray || 1;
     const isOnTrack = currentTray >= expectedTray - 1;
     const isBehind = currentTray < expectedTray - 1;
 
@@ -95,7 +79,7 @@ export default function PatientsScreen() {
         <View style={styles.patientInfo}>
           <Text style={[styles.patientName, { color: colors.textPrimary }]}>{patient.name}</Text>
           <Text style={[styles.patientDetails, { color: colors.textSecondary }]}>
-            Tray {currentTray} of {patientData?.total_trays || 24}
+            Tray {currentTray} of {totalTrays}
           </Text>
           <View style={styles.patientStatus}>
             <View style={[styles.statusDot, { backgroundColor: status.color }]} />
@@ -175,13 +159,12 @@ export default function PatientsScreen() {
             </View>
             <Text style={[styles.statValue, { color: colors.textPrimary }]}>
               {assignedPatients.filter(p => {
-                const patientData = p.patientData;
-                if (!patientData) return true;
-                const daysSinceStart = patientData.treatment_start_date
-                  ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+                const daysSinceStart = p.startDate
+                  ? Math.floor((Date.now() - new Date(p.startDate).getTime()) / (1000 * 60 * 60 * 24))
                   : 0;
-                const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays || 24);
-                return patientData.current_tray >= expectedTray - 1;
+                const totalTrays = p.totalTrays || 24;
+                const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, totalTrays);
+                return (p.currentTray || 1) >= expectedTray - 1;
               }).length}
             </Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>On Track</Text>
@@ -193,13 +176,12 @@ export default function PatientsScreen() {
             </View>
             <Text style={[styles.statValue, { color: colors.textPrimary }]}>
               {assignedPatients.filter(p => {
-                const patientData = p.patientData;
-                if (!patientData) return false;
-                const daysSinceStart = patientData.treatment_start_date
-                  ? Math.floor((Date.now() - new Date(patientData.treatment_start_date).getTime()) / (1000 * 60 * 60 * 24))
+                const daysSinceStart = p.startDate
+                  ? Math.floor((Date.now() - new Date(p.startDate).getTime()) / (1000 * 60 * 60 * 24))
                   : 0;
-                const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, patientData.total_trays || 24);
-                return patientData.current_tray < expectedTray - 1;
+                const totalTrays = p.totalTrays || 24;
+                const expectedTray = Math.min(Math.floor(daysSinceStart / 14) + 1, totalTrays);
+                return (p.currentTray || 1) < expectedTray - 1;
               }).length}
             </Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Need Attention</Text>
@@ -302,6 +284,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     paddingVertical: Spacing.xs,
+
   },
   statsGrid: {
     flexDirection: 'row',

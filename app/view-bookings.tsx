@@ -10,14 +10,14 @@ import { Spacing, BorderRadius } from '@/constants/colors'
 
 export default function ViewBookingsScreen() {
   const { colors } = useTheme()
-  const { practiceInfo, userRole } = usePatientStore()
+  const { practiceInfo, userType } = usePatientStore()
   const [loading, setLoading] = React.useState(true)
 
   // Get the doctor's Calendly URL
   const calendlyUrl = practiceInfo?.calendly_url || null
 
   // If no Calendly URL is set up, show setup prompt
-  if (userRole === 'doctor' && !calendlyUrl) {
+  if (userType === 'standalone_doctor' && !calendlyUrl) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>

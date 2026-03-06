@@ -1,24 +1,21 @@
-// app/auth.tsx - FIXED VERSION WITHOUT INFINITE LOOPS
+// app/auth.tsx - Auth0 Version
 import React, { useState, useEffect, useCallback } from 'react'
 import { View, Text, TextInput, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Stethoscope, User, ArrowLeft } from 'lucide-react-native'
 import { Button } from '@/components/Button'
+import { CodeInput } from '@/components/CodeInput'
 import { Colors, Spacing, BorderRadius } from '@/constants/colors'
 import { usePatientStore } from '@/stores/patient-store'
+import { useAuth0 } from '@/contexts/Auth0Context'
 import { router, useLocalSearchParams } from 'expo-router'
 import { useCustomAlert } from '@/components/CustomAlert'
 import { useTheme } from '@/contexts/ThemeContext'
 
 // Format phone number as user types (e.g., (555) 123-4567)
 const formatPhoneNumber = (text: string): string => {
-  // Remove all non-numeric characters
   const cleaned = text.replace(/\D/g, '')
-
-  // Limit to 10 digits
   const limited = cleaned.slice(0, 10)
-
-  // Format based on length
   if (limited.length === 0) return ''
   if (limited.length <= 3) return `(${limited}`
   if (limited.length <= 6) return `(${limited.slice(0, 3)}) ${limited.slice(3)}`
@@ -26,157 +23,167 @@ const formatPhoneNumber = (text: string): string => {
 }
 
 export default function AuthScreen() {
-  const [isSignUp, setIsSignUp] = useState(false)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
-  const [doctorCode, setDoctorCode] = useState('')
   const [loading, setLoading] = useState(false)
-  // Optional practice info for doctors
+  const [doctorCode, setDoctorCode] = useState('')
+  // Store role selection for after Auth0 login
+  const [pendingRole, setPendingRole] = useState<string | null>(null)
+  // Optional practice info for doctors (collected after login)
+  const [showPracticeForm, setShowPracticeForm] = useState(false)
   const [practiceName, setPracticeName] = useState('')
   const [practicePhone, setPracticePhone] = useState('')
   const [practiceAddress, setPracticeAddress] = useState('')
 
-  const { signIn, signUp, clearAuth, joinDoctorByCode, savePracticeInfo } = usePatientStore()
+  const { login, isAuthenticated, user, isLoading: auth0Loading } = useAuth0()
+  const { initialize, registerStandalonePatient, registerStandaloneDoctor, joinDoctorByCode, profile } = usePatientStore()
   const params = useLocalSearchParams()
   const { showAlert, AlertComponent } = useCustomAlert()
   const { colors } = useTheme()
 
-  // Get role and invitation code from params
+  // Get role from params
   const role = (params.role as string) || 'patient'
-  const invitationCode = params.invitationCode as string
 
-  // Clear auth state once when component mounts
+  // Handle successful Auth0 login - register user in backend
   useEffect(() => {
-    clearAuth()
-
-    // Set default to sign up if coming from role selection
-    if (params.role) {
-      setIsSignUp(true)
+    if (isAuthenticated && user && pendingRole) {
+      handlePostLoginRegistration()
     }
-  }, []) // Empty dependency array to run only once
+  }, [isAuthenticated, user, pendingRole])
 
-  const handleAuth = useCallback(async () => {
-    if (!email || !password || (isSignUp && !name)) {
-      showAlert({
-        title: 'Missing Fields',
-        message: 'Please fill in all fields',
-        type: 'error',
-      })
-      return
-    }
-
-    if (password.length < 8) {
-      showAlert({
-        title: 'Password Too Short',
-        message: 'Password must be at least 8 characters',
-        type: 'error',
-      })
-      return
-    }
+  const handlePostLoginRegistration = async () => {
+    if (!pendingRole) return
 
     setLoading(true)
-
-    // Helper to add timeout to async operations
-    const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
-      return Promise.race([
-        promise,
-        new Promise<T>((_, reject) =>
-          setTimeout(() => reject(new Error('Request timed out. Please check your connection and try again.')), ms)
-        )
-      ])
-    }
-
     try {
-      let result
-      if (isSignUp) {
-        result = await withTimeout(signUp(email, password, name, role, invitationCode), 15000)
+      // Initialize will call whoami and either find existing user or return none
+      await initialize()
 
-        if (!result.error) {
-          // If patient entered a doctor code, join that doctor
-          if (role === 'patient' && doctorCode.trim()) {
-            const joinResult = await joinDoctorByCode(doctorCode.trim())
-            if (!joinResult.success) {
-              showAlert({
-                title: 'Account Created',
-                message: `Your account was created but we couldn't link to the doctor: ${joinResult.error}. You can add your doctor later in Settings.`,
-                type: 'warning',
-                buttons: [
-                  {
-                    text: 'OK',
-                    onPress: () => router.replace('/(tabs)')
-                  }
-                ]
-              })
-              return
-            }
-          }
+      // Check if user is already registered
+      const { profile: existingProfile, userType } = usePatientStore.getState()
 
-          // If doctor entered practice info, save it
-          if (role === 'doctor' && (practiceName.trim() || practicePhone.trim() || practiceAddress.trim())) {
-            await savePracticeInfo({
-              practice_name: practiceName.trim(),
-              practice_phone: practicePhone.trim(),
-              practice_address: practiceAddress.trim(),
-            })
-          }
+      if (existingProfile) {
+        // User already exists, go to main app
+        showAlert({
+          title: 'Welcome Back!',
+          message: 'You are already registered.',
+          type: 'success',
+          buttons: [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
+        })
+        return
+      }
 
+      // New user - register based on role
+      if (pendingRole === 'doctor') {
+        // Show practice form for doctors
+        setShowPracticeForm(true)
+        setLoading(false)
+        return
+      }
+
+      // Register as patient
+      const result = await registerStandalonePatient({
+        name: user?.name,
+        email: user?.email,
+      })
+
+      if (result.error) {
+        showAlert({
+          title: 'Registration Error',
+          message: result.error,
+          type: 'error',
+        })
+        setLoading(false)
+        return
+      }
+
+      // If patient entered a doctor code, join that doctor
+      if (doctorCode.trim()) {
+        const joinResult = await joinDoctorByCode(doctorCode.trim())
+        if (!joinResult.success) {
           showAlert({
-            title: 'Success!',
-            message: role === 'doctor'
-              ? 'Doctor account created successfully!'
-              : doctorCode.trim()
-                ? 'Account created and linked to your doctor!'
-                : 'Account created successfully!',
-            type: 'success',
-            buttons: [
-              {
-                text: 'OK',
-                onPress: () => {
-                  // Patients go to patient onboarding, doctors go to practice setup
-                  if (role === 'patient') {
-                    router.replace('/onboarding')
-                  } else {
-                    router.replace('/doctor-onboarding')
-                  }
-                }
-              }
-            ]
+            title: 'Account Created',
+            message: `Your account was created but we couldn't link to the doctor: ${joinResult.error}. You can add your doctor later in Settings.`,
+            type: 'warning',
+            buttons: [{ text: 'OK', onPress: () => router.replace('/onboarding') }]
           })
-        } else {
-          showAlert({
-            title: 'Error',
-            message: result.error.message,
-            type: 'error',
-          })
-        }
-      } else {
-        result = await withTimeout(signIn(email, password), 15000)
-
-        if (!result.error) {
-          router.replace('/(tabs)')
-        } else {
-          showAlert({
-            title: 'Error',
-            message: result.error.message,
-            type: 'error',
-          })
+          return
         }
       }
+
+      showAlert({
+        title: 'Success!',
+        message: doctorCode.trim() ? 'Account created and linked to your doctor!' : 'Account created successfully!',
+        type: 'success',
+        buttons: [{ text: 'OK', onPress: () => router.replace('/onboarding') }]
+      })
     } catch (error: any) {
       showAlert({
         title: 'Error',
-        message: error?.message || 'Something went wrong. Please check your connection and try again.',
+        message: error?.message || 'Something went wrong.',
         type: 'error',
       })
     } finally {
       setLoading(false)
+      setPendingRole(null)
     }
-  }, [email, password, name, isSignUp, role, invitationCode, signUp, signIn, showAlert, doctorCode, joinDoctorByCode, practiceName, practicePhone, practiceAddress, savePracticeInfo])
+  }
 
-  const handleToggleMode = useCallback(() => {
-    setIsSignUp(!isSignUp)
-  }, [isSignUp])
+  const handleDoctorRegistration = async () => {
+    setLoading(true)
+    try {
+      const result = await registerStandaloneDoctor({
+        name: user?.name,
+        practiceName: practiceName.trim() || undefined,
+        practicePhone: practicePhone.trim() || undefined,
+        practiceAddress: practiceAddress.trim() || undefined,
+      })
+
+      if (result.error) {
+        showAlert({
+          title: 'Registration Error',
+          message: result.error,
+          type: 'error',
+        })
+        return
+      }
+
+      showAlert({
+        title: 'Success!',
+        message: 'Doctor account created successfully!',
+        type: 'success',
+        buttons: [{ text: 'OK', onPress: () => router.replace('/doctor-onboarding') }]
+      })
+    } catch (error: any) {
+      showAlert({
+        title: 'Error',
+        message: error?.message || 'Something went wrong.',
+        type: 'error',
+      })
+    } finally {
+      setLoading(false)
+      setShowPracticeForm(false)
+    }
+  }
+
+  const handleAuth0Login = useCallback(async () => {
+    setLoading(true)
+    setPendingRole(role)
+    try {
+      await login()
+      // After login, the useEffect will handle registration
+    } catch (error: any) {
+      // User cancelled or error occurred
+      if (!error?.message?.includes('cancelled')) {
+        showAlert({
+          title: 'Login Error',
+          message: error?.message || 'Failed to login. Please try again.',
+          type: 'error',
+        })
+      }
+      setPendingRole(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [login, role, showAlert])
 
   const getRoleTitle = () => {
     return role === 'doctor' ? 'Doctor Portal' : 'Patient Portal'
@@ -184,9 +191,91 @@ export default function AuthScreen() {
 
   const getRoleSubtitle = () => {
     if (role === 'doctor') {
-      return isSignUp ? 'Create your doctor account to manage patients' : 'Sign in to your doctor account'
+      return 'Sign in or create your doctor account to manage patients'
     }
-    return isSignUp ? 'Start tracking your orthodontic journey' : 'Welcome back to your treatment tracker'
+    return 'Sign in or create your account to track your treatment'
+  }
+
+  // Show practice info form for doctors after Auth0 login
+  if (showPracticeForm) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right', 'bottom']}>
+        <AlertComponent />
+        <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+          <View style={styles.header}>
+            <Image
+              source={require('@/assets/images/biolign-logo-transparent.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <View style={[styles.roleIconContainer, { backgroundColor: colors.surface, borderColor: colors.primary }]}>
+              <Stethoscope size={32} color={colors.primary} />
+            </View>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Practice Information</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Add your practice details (optional)
+            </Text>
+          </View>
+
+          <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Name</Text>
+              <TextInput
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
+                placeholder="e.g., BioLign Orthodontics"
+                placeholderTextColor={colors.textSecondary}
+                value={practiceName}
+                onChangeText={setPracticeName}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Phone</Text>
+              <TextInput
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
+                placeholder="(555) 123-4567"
+                placeholderTextColor={colors.textSecondary}
+                value={practicePhone}
+                onChangeText={(text) => setPracticePhone(formatPhoneNumber(text))}
+                keyboardType="phone-pad"
+                maxLength={14}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Address</Text>
+              <TextInput
+                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
+                placeholder="e.g., 123 Main St, City, State"
+                placeholderTextColor={colors.textSecondary}
+                value={practiceAddress}
+                onChangeText={setPracticeAddress}
+                autoCapitalize="words"
+              />
+              <Text style={[styles.helpText, { color: colors.textSecondary }]}>
+                You can add more details like office hours later in settings
+              </Text>
+            </View>
+
+            <Button
+              title={loading ? 'Creating Account...' : 'Complete Registration'}
+              onPress={handleDoctorRegistration}
+              disabled={loading}
+              style={styles.primaryButton}
+            />
+
+            <Button
+              title="Skip for now"
+              onPress={() => handleDoctorRegistration()}
+              variant="outline"
+              disabled={loading}
+              style={styles.secondaryButton}
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    )
   }
 
   return (
@@ -216,140 +305,36 @@ export default function AuthScreen() {
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             {getRoleSubtitle()}
           </Text>
-          {invitationCode && (
-            <View style={[styles.invitationBadge, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.invitationText, { color: colors.background }]}>Invitation: {invitationCode}</Text>
-            </View>
-          )}
         </View>
 
         <View style={styles.form}>
-          {isSignUp && (
-            <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: colors.textPrimary }]}>Full Name</Text>
-              <TextInput
-                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-                placeholder={role === 'doctor' ? 'Enter your full name (Dr. ...)' : 'Enter your full name'}
-                placeholderTextColor={colors.textSecondary}
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-                autoComplete="name"
-              />
-            </View>
-          )}
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textPrimary }]}>Email</Text>
-            <TextInput
-              style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-              placeholder="Enter your email"
-              placeholderTextColor={colors.textSecondary}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textPrimary }]}>Password</Text>
-            <TextInput
-              style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-              placeholder="Enter your password"
-              placeholderTextColor={colors.textSecondary}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="password"
-            />
-            {isSignUp && (
-              <Text style={[styles.helpText, { color: colors.textSecondary }]}>Must be at least 8 characters</Text>
-            )}
-          </View>
-
-          {isSignUp && role === 'patient' && !invitationCode && (
+          {/* Doctor code input for patients */}
+          {role === 'patient' && (
             <View style={styles.inputContainer}>
               <Text style={[styles.label, { color: colors.textPrimary }]}>Doctor Code (Optional)</Text>
-              <TextInput
-                style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-                placeholder="Enter your doctor's code"
-                placeholderTextColor={colors.textSecondary}
-                value={doctorCode}
-                onChangeText={(text) => setDoctorCode(text.toUpperCase())}
-                autoCapitalize="characters"
-                autoCorrect={false}
-              />
-              <Text style={[styles.helpText, { color: colors.textSecondary }]}>
+              <View style={styles.codeInputWrapper}>
+                <CodeInput
+                  value={doctorCode}
+                  onChange={setDoctorCode}
+                  length={6}
+                />
+              </View>
+              <Text style={[styles.helpText, { color: colors.textSecondary, textAlign: 'center' }]}>
                 Ask your orthodontist for their code to link your account
               </Text>
             </View>
           )}
 
-          {/* Practice Info for Doctors (Optional) */}
-          {isSignUp && role === 'doctor' && (
-            <>
-              <View style={[styles.sectionDivider, { borderTopColor: colors.border }]}>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Practice Info (Optional)</Text>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Name</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-                  placeholder="e.g., BioLign Orthodontics"
-                  placeholderTextColor={colors.textSecondary}
-                  value={practiceName}
-                  onChangeText={setPracticeName}
-                  autoCapitalize="words"
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Phone</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-                  placeholder="(555) 123-4567"
-                  placeholderTextColor={colors.textSecondary}
-                  value={practicePhone}
-                  onChangeText={(text) => setPracticePhone(formatPhoneNumber(text))}
-                  keyboardType="phone-pad"
-                  maxLength={14}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: colors.textPrimary }]}>Practice Address</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
-                  placeholder="e.g., 123 Main St, City, State"
-                  placeholderTextColor={colors.textSecondary}
-                  value={practiceAddress}
-                  onChangeText={setPracticeAddress}
-                  autoCapitalize="words"
-                />
-                <Text style={[styles.helpText, { color: colors.textSecondary }]}>
-                  You can add more details like office hours later in settings
-                </Text>
-              </View>
-            </>
-          )}
-
           <Button
-            title={loading ? 'Loading...' : (isSignUp ? 'Create Account' : 'Sign In')}
-            onPress={handleAuth}
-            disabled={loading}
+            title={loading || auth0Loading ? 'Loading...' : 'Continue with Auth0'}
+            onPress={handleAuth0Login}
+            disabled={loading || auth0Loading}
             style={styles.primaryButton}
           />
 
-          <Button
-            title={isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
-            onPress={handleToggleMode}
-            variant="outline"
-            style={styles.secondaryButton}
-          />
-
+          <Text style={[styles.orText, { color: colors.textSecondary }]}>
+            You'll be redirected to sign in or create an account
+          </Text>
         </View>
 
         <View style={styles.footer}>
@@ -405,18 +390,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-  invitationBadge: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-    marginTop: Spacing.md,
-  },
-  invitationText: {
-    color: Colors.background,
-    fontSize: 12,
-    fontWeight: '600',
-  },
   form: {
     width: '100%',
   },
@@ -443,17 +416,8 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: Spacing.xs,
   },
-  sectionDivider: {
-    borderTopWidth: 1,
-    marginTop: Spacing.md,
-    marginBottom: Spacing.md,
-    paddingTop: Spacing.md,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  codeInputWrapper: {
+    marginVertical: Spacing.sm,
   },
   primaryButton: {
     marginTop: Spacing.md,
@@ -461,6 +425,11 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     marginBottom: Spacing.lg,
+  },
+  orText: {
+    textAlign: 'center',
+    fontSize: 14,
+    marginBottom: Spacing.md,
   },
   topBackButton: {
     flexDirection: 'row',

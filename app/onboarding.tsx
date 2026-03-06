@@ -11,23 +11,33 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Package, ChevronRight, Sparkles } from 'lucide-react-native';
+import { Package, ChevronRight, Sparkles, User } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { router } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useCustomAlert } from '@/components/CustomAlert';
 
 export default function OnboardingScreen() {
-  const { profile, patient, loadPatientData } = usePatientStore();
+  const { updateProfile, loadPatientData, logTrayChange } = usePatientStore();
+  const [name, setName] = useState('');
   const [totalTrays, setTotalTrays] = useState('');
   const [currentTray, setCurrentTray] = useState('1');
   const [loading, setLoading] = useState(false);
   const { showAlert, AlertComponent } = useCustomAlert();
 
   const handleSubmit = async () => {
+    const trimmedName = name.trim();
     const total = parseInt(totalTrays, 10);
     const current = parseInt(currentTray, 10);
+
+    if (!trimmedName || trimmedName.length < 2) {
+      showAlert({
+        title: 'Name Required',
+        message: 'Please enter your name (at least 2 characters)',
+        type: 'error',
+      });
+      return;
+    }
 
     if (!total || total < 1 || total > 100) {
       showAlert({
@@ -51,36 +61,23 @@ export default function OnboardingScreen() {
 
     try {
       // Update the patient record with the treatment info
-      const { error } = await supabase
-        .from('patients')
-        .update({
-          total_trays: total,
-          current_tray: current,
-          treatment_start_date: new Date().toISOString().split('T')[0],
-        })
-        .eq('user_id', profile?.id);
+      const result = await updateProfile({
+        name: trimmedName,
+        totalTrays: total,
+        currentTray: current,
+      });
 
-      if (error) {
-        console.error('Update patient error:', error);
+      if (!result.success) {
         showAlert({
           title: 'Error',
-          message: 'Failed to save your treatment information. Please try again.',
+          message: result.error || 'Failed to save your treatment information. Please try again.',
           type: 'error',
         });
         return;
       }
 
-      // Log the initial tray
-      if (patient?.id) {
-        await supabase
-          .from('tray_changes')
-          .insert({
-            patient_id: patient.id,
-            tray_number: current,
-            date_changed: new Date().toISOString(),
-            fit_status: 'good',
-          });
-      }
+      // Log the initial tray change
+      await logTrayChange(current, 'good');
 
       // Reload patient data to get the updated info
       await loadPatientData();
@@ -127,6 +124,26 @@ export default function OnboardingScreen() {
 
           {/* Form */}
           <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Your Name</Text>
+              <Text style={styles.helpText}>
+                How should we address you?
+              </Text>
+              <View style={styles.inputRow}>
+                <User size={20} color={Colors.textSecondary} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., John Smith"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                  autoComplete="name"
+                  maxLength={50}
+                />
+              </View>
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Total Number of Aligners</Text>
               <Text style={styles.helpText}>
@@ -295,6 +312,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     paddingVertical: Spacing.md,
+
   },
   previewCard: {
     backgroundColor: Colors.primary + '10',

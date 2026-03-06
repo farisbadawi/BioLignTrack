@@ -169,13 +169,16 @@ const displayStyles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
     borderBottomWidth: 1,
+    gap: Spacing.md,
   },
   days: {
     fontSize: 14,
     fontWeight: '500',
+    flex: 1,
   },
   hours: {
     fontSize: 14,
+    textAlign: 'right',
   },
 })
 

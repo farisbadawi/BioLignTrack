@@ -1,146 +1,84 @@
-// stores/patient-store.ts - COMPREHENSIVE VERSION FOR PRODUCTION
+// stores/patient-store.ts - PMS API Version
 import { create } from 'zustand'
-import { supabase } from '@/lib/supabase'
+import { whoami, standalonePatientApi, standaloneDoctorApi, linkedPatientApi } from '@/lib/api'
 
 // =====================================================
 // TYPE DEFINITIONS
 // =====================================================
 
-interface TreatmentBout {
-  id: string
-  patient_id: string
-  bout_number: number
-  total_trays: number
-  start_date: string
-  end_date: string | null
-  status: 'active' | 'completed' | 'paused' | 'cancelled'
-  notes: string | null
-  created_at: string
+type UserType = 'linked' | 'standalone_patient' | 'standalone_doctor' | 'none'
+
+interface TrayChange {
+  id: number
+  fromTray: number
+  toTray: number
+  changeDate: string
+  fitStatus: string
+  notes: string
 }
 
-interface PatientNote {
-  id: string
-  patient_id: string
-  doctor_id: string
-  bout_id: string | null
-  note_type: 'clinical' | 'progress' | 'concern' | 'general' | 'treatment_plan'
-  title: string | null
-  content: string
-  is_flagged: boolean
-  is_private: boolean
-  created_at: string
+interface WearLog {
+  id: number
+  date: string
+  wearMinutes: number
+  wearSeconds?: number
+  targetMinutes: number
+  trayNumber: number
+  compliancePercent?: number
 }
 
-interface NotificationSettings {
-  id: string
-  user_id: string
-  push_enabled: boolean
-  email_enabled: boolean
-  sms_enabled: boolean
-  wear_reminders: boolean
-  wear_reminder_times: string[]
-  appointment_reminders: boolean
-  appointment_reminder_hours: number
-  tray_change_reminders: boolean
-  message_notifications: boolean
-  weekly_summary: boolean
+interface Doctor {
+  id: number
+  name: string
+  email: string
+  practiceName: string
+  practicePhone: string
+  practiceAddress: string
+  calendlyUrl: string
+  officeHours: string
+  doctorCode?: string
 }
 
-interface UserSettings {
-  id: string
-  user_id: string
-  theme: 'light' | 'dark' | 'system'
-  language: string
-  timezone: string
-  date_format: string
-  time_format: '12h' | '24h'
-  units: 'metric' | 'imperial'
-  haptic_feedback: boolean
-  sound_enabled: boolean
-  auto_start_wear: boolean
-  show_daily_tip: boolean
+interface Patient {
+  id: number
+  name: string
+  email: string
+  currentTray: number
+  totalTrays: number
+  daysPerTray?: number
+  dailyWearTarget?: number
+  startDate?: string
+  assignedDate?: string
+  weeklyCompliance?: number
 }
 
-interface PracticeInfo {
-  practice_name: string
-  practice_phone: string
-  practice_address: string
-  calendly_url: string
-  office_hours: string
-}
+interface PatientState {
+  // User type
+  userType: UserType
 
-interface ProgressPhoto {
-  id: string
-  patient_id: string
-  bout_id: string | null
-  tray_number: number | null
-  photo_type: 'front' | 'left' | 'right' | 'top' | 'bottom' | 'other'
-  photo_url: string
-  thumbnail_url: string | null
-  notes: string | null
-  taken_at: string
-  created_at: string
-}
-
-interface Appointment {
-  id: string
-  patient_id: string
-  doctor_id: string
-  title: string
-  description: string | null
-  appointment_type: 'checkup' | 'adjustment' | 'emergency' | 'consultation' | 'follow_up' | 'other'
-  starts_at: string
-  ends_at: string
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
-  location: string | null
-  video_link: string | null
-  notes: string | null
-}
-
-interface EnhancedPatientState {
   // Core data
-  patient: any | null
   profile: any | null
+  patient: Patient | null
   loading: boolean
   error: string | null
 
   // Treatment tracking
   todayWearMinutes: number
   todayWearSeconds: number
-  dailyLogs: any[]
-  trayChanges: any[]
-  currentSession: any | null
+  dailyLogs: WearLog[]
+  trayChanges: TrayChange[]
+  currentSession: { id: number; startTime: Date } | null
 
-  // Treatment bouts
-  treatmentBouts: TreatmentBout[]
-  currentBout: TreatmentBout | null
-
-  // Messaging
-  messages: any[]
-  unreadMessages: number
-
-  // Appointments
-  appointments: Appointment[]
-
-  // Role-based data
-  userRole: 'patient' | 'doctor' | 'admin'
-  assignedDoctor: any | null
-  assignedPatients: any[]
-  invitations: any[]
+  // Doctor data (for standalone doctors)
   doctorCode: string | null
-
-  // Progress photos
-  progressPhotos: ProgressPhoto[]
-
-  // Doctor features
-  patientNotes: PatientNote[]
+  assignedDoctor: Doctor | null
+  assignedPatients: Patient[]
+  invitations: any[]
 
   // Settings
-  notificationSettings: NotificationSettings | null
-  userSettings: UserSettings | null
-
-  // Practice info (for doctors)
-  practiceInfo: PracticeInfo | null
+  userSettings: any | null
+  notificationSettings: any | null
+  practiceInfo: any | null
 
   // Auth state
   isAuthenticated: boolean
@@ -149,120 +87,72 @@ interface EnhancedPatientState {
   // AUTH ACTIONS
   // =====================================================
   initialize: () => Promise<void>
-  signUp: (email: string, password: string, name: string, role?: string, invitationCode?: string) => Promise<{ error?: any }>
-  signIn: (email: string, password: string) => Promise<{ error?: any }>
-  signOut: () => Promise<void>
   clearAuth: () => void
+  signOut: () => Promise<void>
+
+  // =====================================================
+  // REGISTRATION ACTIONS
+  // =====================================================
+  registerStandalonePatient: (data: { name?: string; email?: string }) => Promise<{ error?: string }>
+  registerStandaloneDoctor: (data: { name?: string; practiceName?: string; practicePhone?: string; practiceAddress?: string }) => Promise<{ error?: string }>
 
   // =====================================================
   // PATIENT DATA ACTIONS
   // =====================================================
   loadPatientData: () => Promise<void>
   loadDailyLogs: () => Promise<void>
-  logHoursForDate: (date: string, hours: number) => Promise<{ success: boolean; error?: string }>
-  getLogForDate: (date: string) => { date: string; hours: number } | null
   loadTrayChanges: () => Promise<void>
-  loadAppointments: () => Promise<void>
-  loadMessages: () => Promise<void>
 
   // =====================================================
   // WEAR TRACKING ACTIONS
   // =====================================================
   startWearSession: () => Promise<void>
   stopWearSession: () => Promise<void>
-  addWearMinutes: (minutes: number) => Promise<void>
-  addWearSecondsToDate: (seconds: number, dateStr: string) => Promise<void>
   loadTodayWearTime: () => Promise<void>
 
   // =====================================================
   // TRAY MANAGEMENT ACTIONS
   // =====================================================
   logTrayChange: (trayNumber: number, fitStatus: string, notes?: string) => Promise<void>
-  revertToPreviousAligner: () => Promise<{ success: boolean; error?: string }>
-  updateTreatmentInfo: (totalTrays: number, currentTray: number) => Promise<{ success: boolean; error?: string }>
-
-  // =====================================================
-  // TREATMENT BOUTS ACTIONS
-  // =====================================================
-  loadTreatmentBouts: () => Promise<void>
-  startNewTreatmentBout: (totalTrays: number, notes?: string) => Promise<{ success: boolean; error?: string }>
-  completeTreatmentBout: (boutId: string, notes?: string) => Promise<{ success: boolean; error?: string }>
-  pauseTreatmentBout: (boutId: string, notes?: string) => Promise<{ success: boolean; error?: string }>
-  resumeTreatmentBout: (boutId: string) => Promise<{ success: boolean; error?: string }>
-
-  // =====================================================
-  // MESSAGING ACTIONS
-  // =====================================================
-  addMessage: (content: string, sender: string) => void
-  markMessagesRead: (senderId?: string) => Promise<void>
-  sendMessageToDoctor: (content: string) => Promise<void>
-  sendMessageToPatient: (patientId: string, content: string) => Promise<void>
 
   // =====================================================
   // DOCTOR-PATIENT RELATIONSHIP ACTIONS
   // =====================================================
-  acceptInvitation: (invitationCode: string) => Promise<{ success: boolean; error?: string; doctorId?: string }>
-  createPatientInvitation: (patientEmail: string) => Promise<{ success: boolean; invitationCode?: string; error?: string; emailSent?: boolean }>
-  sendInvitationEmail: (toEmail: string, doctorCode: string, doctorName: string) => Promise<boolean>
   loadAssignedDoctor: () => Promise<void>
   loadAssignedPatients: () => Promise<void>
   loadInvitations: () => Promise<void>
   getDoctorCode: () => Promise<string | null>
   joinDoctorByCode: (code: string) => Promise<{ success: boolean; error?: string }>
-  getPatientById: (patientId: string) => Promise<any | null>
-
-  // =====================================================
-  // PROGRESS PHOTO ACTIONS
-  // =====================================================
-  loadProgressPhotos: () => Promise<void>
-  uploadProgressPhoto: (photoUri: string, photoType: ProgressPhoto['photo_type']) => Promise<{ success: boolean; error?: string }>
-  deleteProgressPhoto: (photoId: string) => Promise<{ success: boolean; error?: string }>
-
-  // =====================================================
-  // PATIENT NOTES ACTIONS (DOCTOR)
-  // =====================================================
-  loadPatientNotes: (patientId: string) => Promise<void>
-  addPatientNote: (patientId: string, note: Partial<PatientNote>) => Promise<{ success: boolean; error?: string }>
-  updatePatientNote: (noteId: string, updates: Partial<PatientNote>) => Promise<{ success: boolean; error?: string }>
-  deletePatientNote: (noteId: string) => Promise<{ success: boolean; error?: string }>
-
-  // =====================================================
-  // APPOINTMENT ACTIONS
-  // =====================================================
-  requestAppointment: (doctorId: string, appointment: Partial<Appointment>) => Promise<{ success: boolean; error?: string }>
-  updateAppointmentStatus: (appointmentId: string, status: Appointment['status']) => Promise<{ success: boolean; error?: string }>
-  cancelAppointment: (appointmentId: string, reason?: string) => Promise<{ success: boolean; error?: string }>
+  createPatientInvitation: (patientEmail: string) => Promise<{ success: boolean; invitationCode?: string; error?: string }>
+  getPatientById: (patientId: number) => Promise<any | null>
 
   // =====================================================
   // SETTINGS ACTIONS
   // =====================================================
-  loadNotificationSettings: () => Promise<void>
-  updateNotificationSettings: (settings: Partial<NotificationSettings>) => Promise<{ success: boolean; error?: string }>
-  loadUserSettings: () => Promise<void>
-  updateUserSettings: (settings: Partial<UserSettings>) => Promise<{ success: boolean; error?: string }>
-  initializeUserSettings: () => Promise<void>
-
-  // Practice info actions (for doctors)
   loadPracticeInfo: () => Promise<void>
-  savePracticeInfo: (info: Partial<PracticeInfo>) => Promise<{ success: boolean; error?: string }>
+  savePracticeInfo: (info: any) => Promise<{ success: boolean; error?: string }>
   hasPracticeInfo: () => boolean
+  updateProfile: (data: any) => Promise<{ success: boolean; error?: string }>
 
   // =====================================================
   // UTILITY FUNCTIONS
   // =====================================================
-  getTodayLog: () => any
+  getTodayLog: () => { date: string; wearMinutes: number }
   getWeeklyProgress: () => { date: string; hours: number }[]
   getComplianceStats: () => { weeklyAverage: number; monthlyAverage: number; streak: number; treatmentStarted: boolean }
+  getLogForDate: (dateStr: string) => { hours: number } | null
+  logHoursForDate: (dateStr: string, hours: number) => Promise<{ success: boolean; error?: string }>
 }
 
 // =====================================================
 // STORE IMPLEMENTATION
 // =====================================================
 
-export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
+export const usePatientStore = create<PatientState>((set, get) => ({
   // Initial state
-  patient: null,
+  userType: 'none',
   profile: null,
+  patient: null,
   loading: false,
   error: null,
   todayWearMinutes: 0,
@@ -270,20 +160,12 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   dailyLogs: [],
   trayChanges: [],
   currentSession: null,
-  treatmentBouts: [],
-  currentBout: null,
-  messages: [],
-  unreadMessages: 0,
-  appointments: [],
-  userRole: 'patient',
+  doctorCode: null,
   assignedDoctor: null,
   assignedPatients: [],
   invitations: [],
-  doctorCode: null,
-  progressPhotos: [],
-  patientNotes: [],
-  notificationSettings: null,
   userSettings: null,
+  notificationSettings: null,
   practiceInfo: null,
   isAuthenticated: false,
 
@@ -293,26 +175,21 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
 
   clearAuth: () => {
     set({
-      patient: null,
+      userType: 'none',
       profile: null,
+      patient: null,
       todayWearMinutes: 0,
+      todayWearSeconds: 0,
       dailyLogs: [],
       trayChanges: [],
       currentSession: null,
-      treatmentBouts: [],
-      currentBout: null,
-      messages: [],
-      unreadMessages: 0,
-      appointments: [],
-      userRole: 'patient',
+      doctorCode: null,
       assignedDoctor: null,
       assignedPatients: [],
       invitations: [],
-      doctorCode: null,
-      progressPhotos: [],
-      patientNotes: [],
-      notificationSettings: null,
       userSettings: null,
+      notificationSettings: null,
+      practiceInfo: null,
       isAuthenticated: false,
       loading: false,
       error: null,
@@ -323,50 +200,41 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     try {
       set({ loading: true, error: null })
 
-      const { data: { user } } = await supabase.auth.getUser()
+      // Call whoami to determine user type
+      const response = await whoami()
 
-      if (!user) {
+      if (response.error) {
+        console.error('Whoami error:', response.error)
         get().clearAuth()
         return
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        console.error('Profile error:', profileError)
+      const { data } = response
+      if (!data) {
         get().clearAuth()
         return
       }
 
-      if (profile) {
-        set({
-          profile,
-          userRole: profile.role || 'patient',
-          isAuthenticated: true
-        })
+      const userType = data.type
 
-        // Load role-specific data
-        if (profile.role === 'patient') {
-          await get().loadPatientData()
-          await get().loadAssignedDoctor()
-          await get().loadTreatmentBouts()
-        } else if (profile.role === 'doctor') {
-          await get().loadAssignedPatients()
-          await get().loadInvitations()
-          await get().loadPracticeInfo()
-        }
+      if (userType === 'none') {
+        // User is authenticated but not registered in backend
+        set({ userType: 'none', isAuthenticated: true, loading: false })
+        return
+      }
 
-        // Load common data
-        await get().loadMessages()
-        await get().loadAppointments()
-        await get().loadNotificationSettings()
-        await get().loadUserSettings()
-      } else {
-        get().clearAuth()
+      set({ userType, isAuthenticated: true })
+
+      // Load role-specific data
+      if (userType === 'standalone_patient') {
+        await get().loadPatientData()
+      } else if (userType === 'standalone_doctor') {
+        await get().loadAssignedPatients()
+        await get().loadInvitations()
+        await get().loadPracticeInfo()
+      } else if (userType === 'linked') {
+        // PMS-linked patient
+        await get().loadPatientData()
       }
 
       set({ loading: false })
@@ -377,120 +245,43 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
-  signUp: async (email: string, password: string, name: string, role: string = 'patient', invitationCode?: string) => {
-    const waitForProfile = async (userId: string, maxAttempts = 10): Promise<any | null> => {
-      for (let i = 0; i < maxAttempts; i++) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single()
-        if (data) return data
-        await new Promise(r => setTimeout(r, 500))
-      }
-      return null
-    }
-
-    try {
-      set({ loading: true })
-
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name, role, full_name: name, user_role: role }
-        }
-      })
-
-      if (error) {
-        set({ loading: false })
-        return { error }
-      }
-
-      if (data.user) {
-        await waitForProfile(data.user.id)
-
-        // Update profile with correct role
-        await supabase
-          .from('profiles')
-          .update({ role, name })
-          .eq('id', data.user.id)
-
-        // Handle invitation code for patients
-        if (role === 'patient' && invitationCode) {
-          await get().acceptInvitation(invitationCode)
-        }
-
-        const profile = {
-          id: data.user.id,
-          email,
-          name,
-          role,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-
-        set({
-          profile,
-          userRole: role as 'patient' | 'doctor',
-          isAuthenticated: true
-        })
-
-        // Load role-specific data
-        if (role === 'patient') {
-          await get().loadPatientData()
-          await get().loadAssignedDoctor()
-        } else if (role === 'doctor') {
-          await get().loadAssignedPatients()
-          await get().loadInvitations()
-        }
-
-        // Initialize settings for new users
-        await get().initializeUserSettings()
-      }
-
-      set({ loading: false })
-      return {}
-    } catch (error) {
-      set({ loading: false })
-      return { error }
-    }
-  },
-
-  signIn: async (email: string, password: string) => {
-    try {
-      set({ loading: true })
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        set({ loading: false })
-        return { error }
-      }
-
-      if (data.user) {
-        await get().initialize()
-      }
-
-      set({ loading: false })
-      return {}
-    } catch (error) {
-      set({ loading: false })
-      return { error }
-    }
-  },
-
   signOut: async () => {
+    get().clearAuth()
+  },
+
+  // =====================================================
+  // REGISTRATION METHODS
+  // =====================================================
+
+  registerStandalonePatient: async (data) => {
     try {
-      set({ loading: true })
-      await supabase.auth.signOut()
-      get().clearAuth()
+      const response = await standalonePatientApi.register(data)
+
+      if (response.error) {
+        return { error: response.error.message }
+      }
+
+      // Re-initialize to load the new profile
+      await get().initialize()
+      return {}
     } catch (error) {
-      console.error('Sign out error:', error)
-      get().clearAuth()
+      return { error: (error as Error).message }
+    }
+  },
+
+  registerStandaloneDoctor: async (data) => {
+    try {
+      const response = await standaloneDoctorApi.register(data)
+
+      if (response.error) {
+        return { error: response.error.message }
+      }
+
+      // Re-initialize to load the new profile
+      await get().initialize()
+      return {}
+    } catch (error) {
+      return { error: (error as Error).message }
     }
   },
 
@@ -499,90 +290,74 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   // =====================================================
 
   loadPatientData: async () => {
-    const { profile } = get()
-    if (!profile) return
+    const { userType } = get()
 
     try {
-      let { data: patient, error: patientError } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('user_id', profile.id)
-        .single()
+      if (userType === 'standalone_patient') {
+        const response = await standalonePatientApi.getMe()
 
-      if (patientError && patientError.code === 'PGRST116') {
-        // Create new patient record
-        const { data: newPatient, error: createError } = await supabase
-          .from('patients')
-          .insert({
-            user_id: profile.id,
-            target_hours_per_day: 22,
-            total_trays: 24,
-            current_tray: 1,
-            treatment_start_date: new Date().toISOString().split('T')[0]
-          })
-          .select()
-          .single()
-
-        if (createError) {
-          console.error('Create patient error:', createError)
+        if (response.error || !response.data) {
+          console.error('Load patient data error:', response.error)
           return
         }
 
-        patient = newPatient
+        const data = response.data
 
-        // Create initial treatment bout
-        await get().startNewTreatmentBout(24, 'Initial treatment')
-      } else if (patientError) {
-        console.error('Patient error:', patientError)
-        return
-      }
-
-      if (patient) {
         set({
+          profile: {
+            id: data.id,
+            email: data.email,
+            name: data.name,
+            role: 'patient',
+          },
           patient: {
-            ...patient,
-            name: profile.name,
-            email: profile.email
-          }
+            id: data.id,
+            name: data.name || '',
+            email: data.email,
+            currentTray: data.currentTray,
+            totalTrays: data.totalTrays,
+            daysPerTray: data.daysPerTray,
+            dailyWearTarget: data.dailyWearTarget,
+            startDate: data.startDate || undefined,
+          },
+          todayWearMinutes: data.todayWearMinutes || 0,
+          todayWearSeconds: (data.todayWearMinutes || 0) * 60,
+          currentSession: data.activeSession
+            ? { id: data.activeSession.id, startTime: new Date(data.activeSession.startTime) }
+            : null,
+          assignedDoctor: data.doctor || null,
         })
-
-        // Load today's wear time
-        const today = new Date().toISOString().split('T')[0]
-        const { data: todayLog } = await supabase
-          .from('daily_logs')
-          .select('*')
-          .eq('patient_id', patient.id)
-          .eq('date', today)
-          .single()
-
-        if (todayLog) {
-          set({ todayWearMinutes: todayLog.wear_minutes })
-        }
-
-        // Check for active wear session
-        const { data: activeSession } = await supabase
-          .from('wear_sessions')
-          .select('*')
-          .eq('patient_id', patient.id)
-          .eq('is_active', true)
-          .single()
-
-        if (activeSession) {
-          set({
-            currentSession: {
-              ...activeSession,
-              startTime: new Date(activeSession.start_time)
-            }
-          })
-        }
 
         // Load related data
         await Promise.all([
           get().loadDailyLogs(),
           get().loadTrayChanges(),
-          get().loadAppointments(),
-          get().loadProgressPhotos()
         ])
+      } else if (userType === 'linked') {
+        const response = await linkedPatientApi.getMe()
+
+        if (response.error || !response.data) {
+          console.error('Load patient data error:', response.error)
+          return
+        }
+
+        const data = response.data
+
+        set({
+          profile: {
+            id: data.patient?.id,
+            email: data.patient?.email,
+            name: `${data.patient?.firstName} ${data.patient?.lastName}`,
+            role: 'patient',
+          },
+          patient: {
+            id: data.patient?.id,
+            name: `${data.patient?.firstName} ${data.patient?.lastName}`,
+            email: data.patient?.email || '',
+            currentTray: data.treatment?.currentTray || 1,
+            totalTrays: data.treatment?.totalTrays || 24,
+          },
+        })
       }
     } catch (error) {
       console.error('Load patient data error:', error)
@@ -590,192 +365,40 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   loadDailyLogs: async () => {
-    const { patient } = get()
-    if (!patient?.id) return
+    const { userType } = get()
 
     try {
-      const { data: dailyLogs } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('patient_id', patient.id)
-        .order('date', { ascending: false })
-        .limit(90) // Last 90 days
+      if (userType === 'standalone_patient') {
+        const response = await standalonePatientApi.getWearLogs(90)
 
-      if (dailyLogs) {
-        set({ dailyLogs })
+        if (response.error || !response.data) {
+          console.error('Load daily logs error:', response.error)
+          return
+        }
+
+        set({ dailyLogs: response.data.logs })
       }
     } catch (error) {
       console.error('Load daily logs error:', error)
     }
   },
 
-  logHoursForDate: async (date: string, hours: number) => {
-    const { patient, currentBout } = get()
-    if (!patient?.id) {
-      return { success: false, error: 'No patient found' }
-    }
-
-    const wearMinutes = Math.round(hours * 60)
-    const today = new Date().toISOString().split('T')[0]
-
-    try {
-      // Check if log exists for this date
-      const { data: existing } = await supabase
-        .from('daily_logs')
-        .select('id, wear_minutes')
-        .eq('patient_id', patient.id)
-        .eq('date', date)
-        .single()
-
-      if (existing) {
-        // Update existing record
-        const { error } = await supabase
-          .from('daily_logs')
-          .update({ wear_minutes: wearMinutes })
-          .eq('id', existing.id)
-
-        if (error) throw error
-      } else {
-        // Insert new record
-        const { error } = await supabase
-          .from('daily_logs')
-          .insert({
-            patient_id: patient.id,
-            bout_id: currentBout?.id || null,
-            date: date,
-            wear_minutes: wearMinutes,
-            target_minutes: (patient.target_hours_per_day || 22) * 60,
-            comfort_level: 8,
-            fit_ok: true
-          })
-
-        if (error) throw error
-      }
-
-      // Update local state
-      if (date === today) {
-        set({ todayWearMinutes: wearMinutes })
-      }
-
-      // Reload daily logs to refresh the list
-      await get().loadDailyLogs()
-
-      return { success: true }
-    } catch (error) {
-      console.error('Log hours error:', error)
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  getLogForDate: (date: string) => {
-    const { dailyLogs, todayWearMinutes } = get()
-    const today = new Date().toISOString().split('T')[0]
-
-    if (date === today) {
-      return { date, hours: todayWearMinutes / 60 }
-    }
-
-    const log = dailyLogs.find(l => l.date === date)
-    if (log) {
-      return { date, hours: log.wear_minutes / 60 }
-    }
-
-    return null
-  },
-
   loadTrayChanges: async () => {
-    const { patient } = get()
-    if (!patient?.id) return
+    const { userType } = get()
 
     try {
-      const { data: trayChanges } = await supabase
-        .from('tray_changes')
-        .select('*')
-        .eq('patient_id', patient.id)
-        .order('date_changed', { ascending: false })
+      if (userType === 'standalone_patient') {
+        const response = await standalonePatientApi.getTrayChanges()
 
-      if (trayChanges) {
-        set({ trayChanges })
+        if (response.error || !response.data) {
+          console.error('Load tray changes error:', response.error)
+          return
+        }
+
+        set({ trayChanges: response.data.trayChanges })
       }
     } catch (error) {
       console.error('Load tray changes error:', error)
-    }
-  },
-
-  loadAppointments: async () => {
-    const { profile, patient } = get()
-    if (!profile) return
-
-    try {
-      let query = supabase
-        .from('appointments')
-        .select(`
-          *,
-          doctor:profiles!appointments_doctor_id_fkey(id, name, email),
-          patient:patients!appointments_patient_id_fkey(id, user_id)
-        `)
-        .order('starts_at', { ascending: true })
-
-      if (profile.role === 'patient' && patient?.id) {
-        query = query.eq('patient_id', patient.id)
-      } else if (profile.role === 'doctor') {
-        query = query.eq('doctor_id', profile.id)
-      }
-
-      const { data: appointments, error } = await query
-
-      if (error) {
-        console.error('Load appointments error:', error)
-        return
-      }
-
-      if (appointments) {
-        set({
-          appointments: appointments.map(apt => ({
-            ...apt,
-            startsAt: new Date(apt.starts_at),
-            endsAt: new Date(apt.ends_at)
-          }))
-        })
-      }
-    } catch (error) {
-      console.error('Load appointments error:', error)
-    }
-  },
-
-  loadMessages: async () => {
-    const { profile } = get()
-    if (!profile) return
-
-    try {
-      const { data: messages } = await supabase
-        .from('messages')
-        .select(`
-          *,
-          sender:profiles!messages_sender_id_fkey(id, name, email, role),
-          recipient:profiles!messages_recipient_id_fkey(id, name, email, role)
-        `)
-        .or(`sender_id.eq.${profile.id},recipient_id.eq.${profile.id}`)
-        .order('created_at', { ascending: true })
-
-      if (messages) {
-        const formattedMessages = messages.map(msg => ({
-          ...msg,
-          sender: msg.sender_id === profile.id ? profile.role : (profile.role === 'patient' ? 'doctor' : 'patient'),
-          createdAt: new Date(msg.created_at)
-        }))
-
-        const unread = messages.filter(msg =>
-          msg.recipient_id === profile.id && !msg.read
-        ).length
-
-        set({
-          messages: formattedMessages,
-          unreadMessages: unread
-        })
-      }
-    } catch (error) {
-      console.error('Load messages error:', error)
     }
   },
 
@@ -784,28 +407,28 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   // =====================================================
 
   startWearSession: async () => {
-    const { patient, currentBout } = get()
-    if (!patient?.id) return
+    const { userType } = get()
 
     try {
-      const { data: session, error } = await supabase
-        .from('wear_sessions')
-        .insert({
-          patient_id: patient.id,
-          bout_id: currentBout?.id,
-          start_time: new Date().toISOString(),
-          is_active: true
-        })
-        .select()
-        .single()
+      let response
+      if (userType === 'standalone_patient') {
+        response = await standalonePatientApi.startWearSession()
+      } else if (userType === 'linked') {
+        response = await linkedPatientApi.startWearSession()
+      } else {
+        return
+      }
 
-      if (error) throw error
+      if (response.error || !response.data) {
+        console.error('Start session error:', response.error)
+        return
+      }
 
       set({
         currentSession: {
-          ...session,
-          startTime: new Date(session.start_time)
-        }
+          id: response.data.sessionId,
+          startTime: new Date(response.data.startTime),
+        },
       })
     } catch (error) {
       console.error('Start session error:', error)
@@ -813,201 +436,43 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   stopWearSession: async () => {
-    const { currentSession, patient } = get()
-    if (!currentSession || !patient?.id) return
-
-    const startTime = new Date(currentSession.startTime)
-    const endTime = new Date()
-    const sessionSeconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000)
-    const sessionMinutes = Math.floor(sessionSeconds / 60)
+    const { userType, currentSession } = get()
+    if (!currentSession) return
 
     try {
-      // Update the wear session record
-      await supabase
-        .from('wear_sessions')
-        .update({
-          end_time: endTime.toISOString(),
-          duration_minutes: sessionMinutes,
-          is_active: false
-        })
-        .eq('id', currentSession.id)
-
-      // Split session across days if it crossed midnight
-      const startDate = startTime.toISOString().split('T')[0]
-      const endDate = endTime.toISOString().split('T')[0]
-
-      if (startDate === endDate) {
-        // Same day - add all seconds to today
-        await get().addWearSecondsToDate(sessionSeconds, endDate)
+      let response
+      if (userType === 'standalone_patient') {
+        response = await standalonePatientApi.stopWearSession()
+      } else if (userType === 'linked') {
+        response = await linkedPatientApi.stopWearSession()
       } else {
-        // Session crossed midnight - split across days
-        let currentDate = new Date(startTime)
-
-        while (currentDate.toISOString().split('T')[0] <= endDate) {
-          const dateStr = currentDate.toISOString().split('T')[0]
-
-          // Calculate seconds for this day
-          let dayStart: Date
-          let dayEnd: Date
-
-          if (dateStr === startDate) {
-            // First day: from session start to midnight
-            dayStart = startTime
-            dayEnd = new Date(currentDate)
-            dayEnd.setHours(23, 59, 59, 999)
-          } else if (dateStr === endDate) {
-            // Last day: from midnight to session end
-            dayStart = new Date(currentDate)
-            dayStart.setHours(0, 0, 0, 0)
-            dayEnd = endTime
-          } else {
-            // Middle day: full 24 hours
-            dayStart = new Date(currentDate)
-            dayStart.setHours(0, 0, 0, 0)
-            dayEnd = new Date(currentDate)
-            dayEnd.setHours(23, 59, 59, 999)
-          }
-
-          const secondsForDay = Math.floor((dayEnd.getTime() - dayStart.getTime()) / 1000)
-          if (secondsForDay > 0) {
-            await get().addWearSecondsToDate(secondsForDay, dateStr)
-          }
-
-          // Move to next day
-          currentDate.setDate(currentDate.getDate() + 1)
-          currentDate.setHours(0, 0, 0, 0)
-        }
+        return
       }
 
-      // Reload today's data to get updated total
-      await get().loadTodayWearTime()
+      if (response.error || !response.data) {
+        console.error('Stop session error:', response.error)
+        return
+      }
 
-      set({ currentSession: null })
+      // Update today's wear time
+      const todayMinutes = (response.data as any).todayTotalMinutes ?? get().todayWearMinutes + response.data.durationMinutes
+
+      set({
+        currentSession: null,
+        todayWearMinutes: todayMinutes,
+        todayWearSeconds: todayMinutes * 60,
+      })
+
+      // Reload logs
+      await get().loadDailyLogs()
     } catch (error) {
       console.error('Stop session error:', error)
     }
   },
 
-  addWearMinutes: async (minutes: number) => {
-    const { patient, todayWearMinutes, currentBout } = get()
-    if (!patient?.id) return
-
-    const today = new Date().toISOString().split('T')[0]
-    const newTotal = todayWearMinutes + minutes
-
-    try {
-      // First try to update existing record
-      const { data: existing } = await supabase
-        .from('daily_logs')
-        .select('id, wear_minutes')
-        .eq('patient_id', patient.id)
-        .eq('date', today)
-        .single()
-
-      if (existing) {
-        // Update existing record
-        const { error } = await supabase
-          .from('daily_logs')
-          .update({
-            wear_minutes: newTotal,
-            bout_id: currentBout?.id,
-          })
-          .eq('id', existing.id)
-
-        if (error) throw error
-      } else {
-        // Insert new record
-        const { error } = await supabase
-          .from('daily_logs')
-          .insert({
-            patient_id: patient.id,
-            bout_id: currentBout?.id,
-            date: today,
-            wear_minutes: newTotal,
-            target_minutes: (patient.target_hours_per_day || 22) * 60,
-            comfort_level: 8,
-            fit_ok: true
-          })
-
-        if (error) throw error
-      }
-
-      set({ todayWearMinutes: newTotal })
-    } catch (error) {
-      console.error('Add wear minutes error:', error)
-    }
-  },
-
-  addWearSecondsToDate: async (seconds: number, dateStr: string) => {
-    const { patient, currentBout } = get()
-    if (!patient?.id || seconds <= 0) return
-
-    try {
-      // First try to get existing record for this date
-      const { data: existing } = await supabase
-        .from('daily_logs')
-        .select('id, wear_minutes, wear_seconds')
-        .eq('patient_id', patient.id)
-        .eq('date', dateStr)
-        .single()
-
-      if (existing) {
-        // Update existing record - add seconds and update minutes
-        const totalSeconds = (existing.wear_seconds || 0) + seconds
-        const totalMinutes = Math.floor(totalSeconds / 60)
-        const { error } = await supabase
-          .from('daily_logs')
-          .update({
-            wear_minutes: totalMinutes,
-            wear_seconds: totalSeconds,
-            bout_id: currentBout?.id,
-          })
-          .eq('id', existing.id)
-
-        if (error) throw error
-      } else {
-        // Insert new record
-        const { error } = await supabase
-          .from('daily_logs')
-          .insert({
-            patient_id: patient.id,
-            bout_id: currentBout?.id,
-            date: dateStr,
-            wear_minutes: Math.floor(seconds / 60),
-            wear_seconds: seconds,
-            target_minutes: (patient.target_hours_per_day || 22) * 60,
-            comfort_level: 8,
-            fit_ok: true
-          })
-
-        if (error) throw error
-      }
-    } catch (error) {
-      console.error('Add wear seconds to date error:', error)
-    }
-  },
-
   loadTodayWearTime: async () => {
-    const { patient } = get()
-    if (!patient?.id) return
-
-    const today = new Date().toISOString().split('T')[0]
-
-    try {
-      const { data } = await supabase
-        .from('daily_logs')
-        .select('wear_minutes, wear_seconds')
-        .eq('patient_id', patient.id)
-        .eq('date', today)
-        .single()
-
-      // Use wear_seconds if available, otherwise fall back to wear_minutes * 60
-      const seconds = data?.wear_seconds ?? (data?.wear_minutes || 0) * 60
-      set({ todayWearMinutes: Math.floor(seconds / 60), todayWearSeconds: seconds })
-    } catch (error) {
-      // No record for today yet, that's fine
-      set({ todayWearMinutes: 0, todayWearSeconds: 0 })
-    }
+    // This is handled by loadPatientData for standalone patients
+    await get().loadPatientData()
   },
 
   // =====================================================
@@ -1015,380 +480,35 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   // =====================================================
 
   logTrayChange: async (trayNumber: number, fitStatus: string, notes?: string) => {
-    const { patient, profile, currentBout, trayChanges } = get()
-    if (!patient?.id || !profile?.id) return
-
-    // Check for duplicate - don't create if same tray number already exists for this bout
-    const existingChange = trayChanges.find(
-      tc => tc.tray_number === trayNumber && tc.bout_id === currentBout?.id
-    )
-    if (existingChange) {
-      console.log('Duplicate tray change prevented')
-      return
-    }
+    const { userType, patient } = get()
+    if (!patient) return
 
     try {
-      await supabase
-        .from('tray_changes')
-        .insert({
-          patient_id: patient.id,
-          bout_id: currentBout?.id,
-          tray_number: trayNumber,
-          date_changed: new Date().toISOString(),
-          fit_status: fitStatus,
-          notes: notes
-        })
-
-      await supabase
-        .from('patients')
-        .update({ current_tray: trayNumber })
-        .eq('id', patient.id)
-
-      set((state) => ({
-        patient: state.patient ? { ...state.patient, current_tray: trayNumber } : null,
-      }))
-
-      await get().loadTrayChanges()
-    } catch (error) {
-      console.error('Log tray change error:', error)
-    }
-  },
-
-  revertToPreviousAligner: async () => {
-    const { patient, trayChanges, currentBout } = get()
-    if (!patient?.id) {
-      return { success: false, error: 'No patient record found' }
-    }
-
-    if (patient.current_tray <= 1) {
-      return { success: false, error: 'Already on the first aligner' }
-    }
-
-    try {
-      // Find the most recent tray change for the current aligner
-      const currentTrayChanges = trayChanges
-        .filter(tc => tc.tray_number === patient.current_tray && tc.bout_id === currentBout?.id)
-        .sort((a, b) => new Date(b.date_changed).getTime() - new Date(a.date_changed).getTime())
-
-      // Delete the most recent tray change entry if it exists
-      if (currentTrayChanges.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('tray_changes')
-          .delete()
-          .eq('id', currentTrayChanges[0].id)
-
-        if (deleteError) {
-          console.error('Delete tray change error:', deleteError)
-          return { success: false, error: deleteError.message }
-        }
+      let response
+      if (userType === 'standalone_patient') {
+        response = await standalonePatientApi.changeTray(trayNumber, fitStatus, notes)
+      } else if (userType === 'linked') {
+        response = await linkedPatientApi.changeTray(trayNumber, fitStatus, notes)
+      } else {
+        return
       }
 
-      // Update patient's current tray to previous
-      const previousTray = patient.current_tray - 1
-      const { error: updateError } = await supabase
-        .from('patients')
-        .update({ current_tray: previousTray })
-        .eq('id', patient.id)
-
-      if (updateError) {
-        console.error('Update patient tray error:', updateError)
-        return { success: false, error: updateError.message }
+      if (response.error || !response.data) {
+        console.error('Log tray change error:', response.error)
+        return
       }
 
-      // Update local state
+      // Update patient's current tray
       set((state) => ({
-        patient: state.patient ? { ...state.patient, current_tray: previousTray } : null,
+        patient: state.patient
+          ? { ...state.patient, currentTray: response.data!.newCurrentTray }
+          : null,
       }))
 
       // Reload tray changes
       await get().loadTrayChanges()
-
-      return { success: true }
-    } catch (error: any) {
-      console.error('Revert aligner error:', error)
-      return { success: false, error: error.message || 'Failed to revert aligner' }
-    }
-  },
-
-  updateTreatmentInfo: async (totalTrays: number, currentTray: number) => {
-    const { patient, profile } = get()
-    if (!patient?.id || !profile?.id) {
-      return { success: false, error: 'No patient record found' }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('patients')
-        .update({
-          total_trays: totalTrays,
-          current_tray: currentTray,
-          treatment_start_date: new Date().toISOString().split('T')[0]
-        })
-        .eq('id', patient.id)
-
-      if (error) {
-        console.error('Update treatment info error:', error)
-        return { success: false, error: error.message }
-      }
-
-      set((state) => ({
-        patient: state.patient ? {
-          ...state.patient,
-          total_trays: totalTrays,
-          current_tray: currentTray
-        } : null,
-      }))
-
-      // Also log the initial tray change
-      await supabase
-        .from('tray_changes')
-        .upsert({
-          patient_id: patient.id,
-          tray_number: currentTray,
-          date_changed: new Date().toISOString(),
-          fit_status: 'ok'
-        }, { onConflict: 'patient_id,tray_number' })
-
-      await get().loadTrayChanges()
-
-      return { success: true }
     } catch (error) {
-      console.error('Update treatment info error:', error)
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  // =====================================================
-  // TREATMENT BOUTS METHODS
-  // =====================================================
-
-  loadTreatmentBouts: async () => {
-    const { profile } = get()
-    if (!profile) return
-
-    try {
-      const { data: bouts, error } = await supabase
-        .from('treatment_bouts')
-        .select('*')
-        .eq('patient_id', profile.id)
-        .order('bout_number', { ascending: false })
-
-      if (error) {
-        console.error('Load treatment bouts error:', error)
-        return
-      }
-
-      const activeBout = bouts?.find(b => b.status === 'active') || null
-
-      set({
-        treatmentBouts: bouts || [],
-        currentBout: activeBout
-      })
-    } catch (error) {
-      console.error('Load treatment bouts error:', error)
-    }
-  },
-
-  startNewTreatmentBout: async (totalTrays: number, notes?: string) => {
-    const { profile, treatmentBouts, patient } = get()
-    if (!profile) return { success: false, error: 'Not authenticated' }
-
-    try {
-      // Complete any active bouts first
-      const activeBout = treatmentBouts.find(b => b.status === 'active')
-      if (activeBout) {
-        await get().completeTreatmentBout(activeBout.id, 'Completed to start new treatment')
-      }
-
-      const newBoutNumber = treatmentBouts.length + 1
-
-      const { data: newBout, error } = await supabase
-        .from('treatment_bouts')
-        .insert({
-          patient_id: profile.id,
-          bout_number: newBoutNumber,
-          total_trays: totalTrays,
-          start_date: new Date().toISOString().split('T')[0],
-          status: 'active',
-          notes: notes
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Start new bout error:', error)
-        return { success: false, error: error.message }
-      }
-
-      // Update patient record
-      if (patient?.id) {
-        await supabase
-          .from('patients')
-          .update({
-            current_bout_id: newBout.id,
-            total_trays: totalTrays,
-            current_tray: 1,
-            treatment_start_date: new Date().toISOString().split('T')[0]
-          })
-          .eq('id', patient.id)
-
-        set((state) => ({
-          patient: state.patient ? {
-            ...state.patient,
-            current_bout_id: newBout.id,
-            total_trays: totalTrays,
-            current_tray: 1
-          } : null,
-        }))
-      }
-
-      await get().loadTreatmentBouts()
-
-      return { success: true }
-    } catch (error) {
-      console.error('Start new bout error:', error)
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  completeTreatmentBout: async (boutId: string, notes?: string) => {
-    try {
-      const { error } = await supabase
-        .from('treatment_bouts')
-        .update({
-          status: 'completed',
-          end_date: new Date().toISOString().split('T')[0],
-          notes: notes
-        })
-        .eq('id', boutId)
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadTreatmentBouts()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  pauseTreatmentBout: async (boutId: string, notes?: string) => {
-    try {
-      const { error } = await supabase
-        .from('treatment_bouts')
-        .update({
-          status: 'paused',
-          notes: notes
-        })
-        .eq('id', boutId)
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadTreatmentBouts()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  resumeTreatmentBout: async (boutId: string) => {
-    try {
-      const { error } = await supabase
-        .from('treatment_bouts')
-        .update({ status: 'active' })
-        .eq('id', boutId)
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadTreatmentBouts()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  // =====================================================
-  // MESSAGING METHODS
-  // =====================================================
-
-  addMessage: (content: string, sender: string) => {
-    const newMessage = {
-      id: Date.now().toString(),
-      content,
-      sender,
-      createdAt: new Date(),
-      read: sender === 'patient'
-    }
-
-    set((state) => ({
-      messages: [...state.messages, newMessage]
-    }))
-  },
-
-  markMessagesRead: async (senderId?: string) => {
-    const { profile } = get()
-    if (!profile) return
-
-    try {
-      let query = supabase
-        .from('messages')
-        .update({ read: true, read_at: new Date().toISOString() })
-        .eq('recipient_id', profile.id)
-        .eq('read', false)
-
-      if (senderId) {
-        query = query.eq('sender_id', senderId)
-      }
-
-      await query
-      await get().loadMessages()
-    } catch (error) {
-      console.error('Mark messages read error:', error)
-    }
-  },
-
-  sendMessageToDoctor: async (content: string) => {
-    const { profile, assignedDoctor } = get()
-    if (!profile || !assignedDoctor || profile.role !== 'patient') return
-
-    try {
-      await supabase
-        .from('messages')
-        .insert({
-          sender_id: profile.id,
-          recipient_id: assignedDoctor.id,
-          content,
-          read: false
-        })
-
-      await get().loadMessages()
-    } catch (error) {
-      console.error('Send message to doctor error:', error)
-    }
-  },
-
-  sendMessageToPatient: async (patientId: string, content: string) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return
-
-    try {
-      await supabase
-        .from('messages')
-        .insert({
-          sender_id: profile.id,
-          recipient_id: patientId,
-          content,
-          read: false
-        })
-
-      await get().loadMessages()
-    } catch (error) {
-      console.error('Send message to patient error:', error)
+      console.error('Log tray change error:', error)
     }
   },
 
@@ -1396,118 +516,19 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   // DOCTOR-PATIENT RELATIONSHIP METHODS
   // =====================================================
 
-  acceptInvitation: async (invitationCode: string) => {
-    try {
-      const { data: invitation, error: inviteError } = await supabase
-        .from('patient_invitations')
-        .select('*, profiles!patient_invitations_doctor_id_fkey(*)')
-        .eq('invitation_code', invitationCode)
-        .eq('status', 'pending')
-        .single()
-
-      if (inviteError || !invitation) {
-        return { success: false, error: 'Invalid or expired invitation code' }
-      }
-
-      // Check if invitation has expired
-      if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
-        await supabase
-          .from('patient_invitations')
-          .update({ status: 'expired' })
-          .eq('id', invitation.id)
-        return { success: false, error: 'This invitation has expired. Please ask your doctor for a new one.' }
-      }
-
-      const { profile } = get()
-      if (!profile) {
-        return { success: false, error: 'User not authenticated' }
-      }
-
-      const { error: relationshipError } = await supabase
-        .from('doctor_patients')
-        .insert({
-          doctor_id: invitation.doctor_id,
-          patient_id: profile.id,
-          status: 'active'
-        })
-
-      if (relationshipError) {
-        return { success: false, error: 'Failed to establish doctor-patient relationship' }
-      }
-
-      await supabase
-        .from('patient_invitations')
-        .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-        .eq('id', invitation.id)
-
-      set({ assignedDoctor: invitation.profiles })
-
-      return { success: true, doctorId: invitation.doctor_id }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  createPatientInvitation: async (patientEmail: string) => {
-    const { profile, doctorCode } = get()
-    if (!profile || profile.role !== 'doctor') {
-      return { success: false, error: 'Only doctors can create invitations' }
-    }
-
-    try {
-      let code = doctorCode
-      if (!code) {
-        code = await get().getDoctorCode()
-      }
-
-      if (!code) {
-        return { success: false, error: 'Could not get doctor code' }
-      }
-
-      await supabase
-        .from('patient_invitations')
-        .insert({
-          doctor_id: profile.id,
-          patient_email: patientEmail,
-          invitation_code: code,
-          status: 'pending'
-        })
-
-      const emailSent = await get().sendInvitationEmail(patientEmail, code, profile.name)
-      await get().loadInvitations()
-
-      return { success: true, invitationCode: code, emailSent }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  sendInvitationEmail: async (toEmail: string, doctorCode: string, doctorName: string) => {
-    // Email sending implementation - would use a service like Resend or SendGrid
-    console.log(`Would send email to ${toEmail} with code ${doctorCode} from ${doctorName}`)
-    return false
-  },
-
   loadAssignedDoctor: async () => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'patient') return
+    const { userType } = get()
 
     try {
-      const { data: relationship } = await supabase
-        .from('doctor_patients')
-        .select(`
-          doctor_id,
-          profiles!doctor_patients_doctor_id_fkey (
-            id, name, email, role, phone,
-            practice_name, practice_phone, practice_address, calendly_url, office_hours
-          )
-        `)
-        .eq('patient_id', profile.id)
-        .eq('status', 'active')
-        .single()
+      if (userType === 'standalone_patient') {
+        const response = await standalonePatientApi.getDoctor()
 
-      if (relationship?.profiles) {
-        set({ assignedDoctor: relationship.profiles })
+        if (response.error || !response.data) {
+          set({ assignedDoctor: null })
+          return
+        }
+
+        set({ assignedDoctor: response.data.doctor || null })
       }
     } catch (error) {
       console.error('Load assigned doctor error:', error)
@@ -1516,39 +537,19 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   loadAssignedPatients: async () => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return
+    const { userType } = get()
 
     try {
-      const { data: relationships } = await supabase
-        .from('doctor_patients')
-        .select('patient_id, status, assigned_date')
-        .eq('doctor_id', profile.id)
-        .eq('status', 'active')
+      if (userType === 'standalone_doctor') {
+        const response = await standaloneDoctorApi.getPatients()
 
-      if (!relationships || relationships.length === 0) {
-        set({ assignedPatients: [] })
-        return
+        if (response.error || !response.data) {
+          set({ assignedPatients: [] })
+          return
+        }
+
+        set({ assignedPatients: response.data.patients })
       }
-
-      const patientIds = relationships.map(r => r.patient_id)
-
-      const { data: patientProfiles } = await supabase
-        .from('profiles')
-        .select('id, name, email, role, phone')
-        .in('id', patientIds)
-
-      const { data: patientsData } = await supabase
-        .from('patients')
-        .select('id, user_id, current_tray, total_trays, target_hours_per_day, treatment_start_date')
-        .in('user_id', patientIds)
-
-      const patients = patientProfiles?.map(profile => {
-        const patientData = patientsData?.find(p => p.user_id === profile.id)
-        return { ...profile, patientData: patientData || null }
-      }) || []
-
-      set({ assignedPatients: patients })
     } catch (error) {
       console.error('Load assigned patients error:', error)
       set({ assignedPatients: [] })
@@ -1556,187 +557,145 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   loadInvitations: async () => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return
+    const { userType } = get()
 
     try {
-      const { data: invitations } = await supabase
-        .from('patient_invitations')
-        .select('*')
-        .eq('doctor_id', profile.id)
-        .order('created_at', { ascending: false })
+      if (userType === 'standalone_doctor') {
+        const response = await standaloneDoctorApi.getMe()
 
-      if (invitations) {
-        set({ invitations })
+        if (response.error || !response.data) {
+          set({ invitations: [] })
+          return
+        }
+
+        set({ invitations: response.data.pendingInvitations || [] })
       }
     } catch (error) {
       console.error('Load invitations error:', error)
+      set({ invitations: [] })
     }
   },
 
   getDoctorCode: async () => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return null
+    const { userType, doctorCode } = get()
+
+    if (doctorCode) return doctorCode
 
     try {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('doctor_code')
-        .eq('id', profile.id)
-        .maybeSingle()
+      if (userType === 'standalone_doctor') {
+        const response = await standaloneDoctorApi.getMe()
 
-      if (profileData?.doctor_code) {
-        set({ doctorCode: profileData.doctor_code })
-        return profileData.doctor_code
+        if (response.error || !response.data) {
+          return null
+        }
+
+        const code = response.data.doctorCode
+        set({ doctorCode: code })
+        return code
       }
-
-      // Generate new code using crypto-safe random
-      const array = new Uint8Array(4)
-      crypto.getRandomValues(array)
-      const newCode = Array.from(array, b => b.toString(36).padStart(2, '0')).join('').substring(0, 6).toUpperCase()
-
-      await supabase
-        .from('profiles')
-        .update({ doctor_code: newCode })
-        .eq('id', profile.id)
-
-      set({ doctorCode: newCode })
-      return newCode
     } catch (error) {
       console.error('Get doctor code error:', error)
-      return null
     }
+
+    return null
   },
 
   joinDoctorByCode: async (code: string) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'patient') {
-      return { success: false, error: 'Only patients can join doctors' }
-    }
+    const { userType } = get()
 
     try {
-      const { data: doctor, error: findError } = await supabase
-        .from('profiles')
-        .select('id, name, email')
-        .eq('doctor_code', code.toUpperCase())
-        .eq('role', 'doctor')
-        .single()
+      // For standalone patients, try standalone doctor code first
+      if (userType === 'standalone_patient') {
+        const standaloneResponse = await standalonePatientApi.joinDoctor(code)
 
-      if (findError || !doctor) {
-        return { success: false, error: 'Invalid doctor code' }
+        if (!standaloneResponse.error) {
+          // Success - reload assigned doctor
+          await get().loadAssignedDoctor()
+          return { success: true, type: 'standalone' }
+        }
+
+        // If standalone failed, the code might be invalid - don't try PMS
+        // (standalone patients can't become PMS patients)
+        return { success: false, error: standaloneResponse.error.message }
       }
 
-      const { data: existing } = await supabase
-        .from('doctor_patients')
-        .select('id')
-        .eq('doctor_id', doctor.id)
-        .eq('patient_id', profile.id)
-        .single()
+      // For new users (type === 'none'), try both code types
+      if (userType === 'none') {
+        // First try as PMS invite code
+        const pmsResponse = await linkedPatientApi.link(code)
 
-      if (existing) {
-        return { success: false, error: 'You are already linked to this doctor' }
+        if (!pmsResponse.error && pmsResponse.data) {
+          // Success - user is now a PMS-linked patient
+          // Reinitialize to load the new user type
+          await get().initialize()
+          return { success: true, type: 'pms' }
+        }
+
+        // If PMS failed, try as standalone doctor code
+        // But first we need to register as standalone patient
+        const registerResponse = await standalonePatientApi.register({})
+
+        if (registerResponse.error) {
+          return { success: false, error: 'Failed to create account' }
+        }
+
+        // Now try joining the doctor
+        const standaloneResponse = await standalonePatientApi.joinDoctor(code)
+
+        if (!standaloneResponse.error) {
+          // Success - reinitialize to load data
+          await get().initialize()
+          return { success: true, type: 'standalone' }
+        }
+
+        // Both failed - invalid code
+        return { success: false, error: 'Invalid code. Please check and try again.' }
       }
 
-      const { error: relationshipError } = await supabase
-        .from('doctor_patients')
-        .insert({
-          doctor_id: doctor.id,
-          patient_id: profile.id,
-          status: 'active'
-        })
-
-      if (relationshipError) {
-        return { success: false, error: 'Failed to link to doctor' }
-      }
-
-      // Set treatment_start_date when patient links to doctor (this starts compliance tracking)
-      const { patient } = get()
-      if (patient && !patient.treatment_start_date) {
-        const today = new Date().toISOString().split('T')[0]
-        await supabase
-          .from('patients')
-          .update({ treatment_start_date: today })
-          .eq('id', patient.id)
-
-        set((state) => ({
-          patient: state.patient ? {
-            ...state.patient,
-            treatment_start_date: today
-          } : null
-        }))
-      }
-
-      // Reload assigned doctor with full practice info
-      await get().loadAssignedDoctor()
-      return { success: true }
+      return { success: false, error: 'Cannot link with this account type' }
     } catch (error) {
       return { success: false, error: (error as Error).message }
     }
   },
 
-  getPatientById: async (patientId: string) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return null
+  createPatientInvitation: async (patientEmail: string) => {
+    const { userType } = get()
 
     try {
-      // Verify patient is assigned to doctor
-      const { data: relationship } = await supabase
-        .from('doctor_patients')
-        .select('*')
-        .eq('doctor_id', profile.id)
-        .eq('patient_id', patientId)
-        .eq('status', 'active')
-        .single()
-
-      if (!relationship) return null
-
-      const { data: patientProfile } = await supabase
-        .from('profiles')
-        .select('id, name, email, role, phone, created_at')
-        .eq('id', patientId)
-        .single()
-
-      if (!patientProfile) return null
-
-      const { data: patientData } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('user_id', patientId)
-        .single()
-
-      const { data: dailyLogs } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('patient_id', patientData?.id)
-        .order('date', { ascending: false })
-        .limit(30)
-
-      const { data: trayChanges } = await supabase
-        .from('tray_changes')
-        .select('*')
-        .eq('patient_id', patientData?.id)
-        .order('date_changed', { ascending: false })
-
-      const { data: treatmentBouts } = await supabase
-        .from('treatment_bouts')
-        .select('*')
-        .eq('patient_id', patientId)
-        .order('bout_number', { ascending: false })
-
-      const { data: progressPhotos } = await supabase
-        .from('progress_photos')
-        .select('*')
-        .eq('patient_id', patientData?.id)
-        .order('taken_at', { ascending: false })
-
-      return {
-        ...patientProfile,
-        patientData: patientData || null,
-        dailyLogs: dailyLogs || [],
-        trayChanges: trayChanges || [],
-        treatmentBouts: treatmentBouts || [],
-        progressPhotos: progressPhotos || []
+      if (userType !== 'standalone_doctor') {
+        return { success: false, error: 'Only doctors can create invitations' }
       }
+
+      const response = await standaloneDoctorApi.invite(patientEmail)
+
+      if (response.error) {
+        return { success: false, error: response.error.message }
+      }
+
+      // Reload invitations
+      await get().loadInvitations()
+
+      return { success: true, invitationCode: response.data?.doctorCode }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  },
+
+  getPatientById: async (patientId: number) => {
+    const { userType } = get()
+
+    try {
+      if (userType !== 'standalone_doctor') {
+        return null
+      }
+
+      const response = await standaloneDoctorApi.getPatient(patientId)
+
+      if (response.error || !response.data) {
+        return null
+      }
+
+      return response.data
     } catch (error) {
       console.error('Get patient by ID error:', error)
       return null
@@ -1744,546 +703,37 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
   },
 
   // =====================================================
-  // PROGRESS PHOTO METHODS
-  // =====================================================
-
-  loadProgressPhotos: async () => {
-    const { patient } = get()
-    if (!patient?.id) return
-
-    try {
-      const { data: photos, error } = await supabase
-        .from('progress_photos')
-        .select('*')
-        .eq('patient_id', patient.id)
-        .order('taken_at', { ascending: false })
-
-      if (error) {
-        console.error('Load progress photos error:', error)
-        return
-      }
-
-      set({ progressPhotos: photos || [] })
-    } catch (error) {
-      console.error('Load progress photos error:', error)
-    }
-  },
-
-  uploadProgressPhoto: async (photoUri: string, photoType: ProgressPhoto['photo_type']) => {
-    const { patient, currentBout } = get()
-    if (!patient?.id) {
-      return { success: false, error: 'No patient record found' }
-    }
-
-    try {
-      // Read file as base64
-      const FileSystem = require('expo-file-system')
-      const base64 = await FileSystem.readAsStringAsync(photoUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      })
-
-      const dataUri = `data:image/jpeg;base64,${base64}`
-
-      const { error } = await supabase
-        .from('progress_photos')
-        .insert({
-          patient_id: patient.id,
-          bout_id: currentBout?.id || null,
-          tray_number: patient.current_tray,
-          photo_type: photoType,
-          photo_url: dataUri,
-          taken_at: new Date().toISOString(),
-        })
-
-      if (error) {
-        console.error('Upload progress photo error:', error)
-        return { success: false, error: error.message }
-      }
-
-      await get().loadProgressPhotos()
-      return { success: true }
-    } catch (error) {
-      console.error('Upload progress photo error:', error)
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  deleteProgressPhoto: async (photoId: string) => {
-    const { patient } = get()
-    if (!patient?.id) {
-      return { success: false, error: 'No patient record found' }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('progress_photos')
-        .delete()
-        .eq('id', photoId)
-        .eq('patient_id', patient.id)
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadProgressPhotos()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  // =====================================================
-  // PATIENT NOTES METHODS (DOCTOR)
-  // =====================================================
-
-  loadPatientNotes: async (patientId: string) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return
-
-    try {
-      const { data: notes, error } = await supabase
-        .from('patient_notes')
-        .select('*')
-        .eq('patient_id', patientId)
-        .eq('doctor_id', profile.id)
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        console.error('Load patient notes error:', error)
-        return
-      }
-
-      set({ patientNotes: notes || [] })
-    } catch (error) {
-      console.error('Load patient notes error:', error)
-    }
-  },
-
-  addPatientNote: async (patientId: string, note: Partial<PatientNote>) => {
-    const { profile, currentBout } = get()
-    if (!profile || profile.role !== 'doctor') {
-      return { success: false, error: 'Only doctors can add notes' }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('patient_notes')
-        .insert({
-          patient_id: patientId,
-          doctor_id: profile.id,
-          bout_id: currentBout?.id,
-          note_type: note.note_type || 'general',
-          title: note.title,
-          content: note.content,
-          is_flagged: note.is_flagged || false,
-          is_private: note.is_private !== false
-        })
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadPatientNotes(patientId)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  updatePatientNote: async (noteId: string, updates: Partial<PatientNote>) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') {
-      return { success: false, error: 'Only doctors can update notes' }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('patient_notes')
-        .update(updates)
-        .eq('id', noteId)
-        .eq('doctor_id', profile.id)
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  deletePatientNote: async (noteId: string) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') {
-      return { success: false, error: 'Only doctors can delete notes' }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('patient_notes')
-        .delete()
-        .eq('id', noteId)
-        .eq('doctor_id', profile.id)
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  // =====================================================
-  // APPOINTMENT METHODS
-  // =====================================================
-
-  requestAppointment: async (doctorId: string, appointment: Partial<Appointment>) => {
-    const { profile, patient } = get()
-    if (!profile || !patient) {
-      return { success: false, error: 'Not authenticated' }
-    }
-
-    try {
-      const { error } = await supabase
-        .from('appointments')
-        .insert({
-          patient_id: patient.id,
-          doctor_id: doctorId,
-          title: appointment.title || 'Appointment Request',
-          description: appointment.description,
-          appointment_type: appointment.appointment_type || 'checkup',
-          starts_at: appointment.starts_at,
-          ends_at: appointment.ends_at,
-          status: 'pending',
-          location: appointment.location,
-          notes: appointment.notes
-        })
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadAppointments()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  updateAppointmentStatus: async (appointmentId: string, status: Appointment['status']) => {
-    const { profile, patient } = get()
-    if (!profile) {
-      return { success: false, error: 'Not authenticated' }
-    }
-
-    try {
-      // Scope update to appointments the user is a participant in
-      let query = supabase
-        .from('appointments')
-        .update({ status })
-        .eq('id', appointmentId)
-
-      if (profile.role === 'doctor') {
-        query = query.eq('doctor_id', profile.id)
-      } else if (patient?.id) {
-        query = query.eq('patient_id', patient.id)
-      }
-
-      const { error } = await query
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadAppointments()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  cancelAppointment: async (appointmentId: string, reason?: string) => {
-    const { profile, patient } = get()
-    if (!profile) {
-      return { success: false, error: 'Not authenticated' }
-    }
-
-    try {
-      // Scope cancellation to appointments the user is a participant in
-      let query = supabase
-        .from('appointments')
-        .update({
-          status: 'cancelled',
-          notes: reason
-        })
-        .eq('id', appointmentId)
-
-      if (profile.role === 'doctor') {
-        query = query.eq('doctor_id', profile.id)
-      } else if (patient?.id) {
-        query = query.eq('patient_id', patient.id)
-      }
-
-      const { error } = await query
-
-      if (error) {
-        return { success: false, error: error.message }
-      }
-
-      await get().loadAppointments()
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  },
-
-  // =====================================================
   // SETTINGS METHODS
   // =====================================================
 
-  loadNotificationSettings: async () => {
-    const { profile } = get()
-    if (!profile) return
-
-    // Set default values first
-    const defaults: NotificationSettings = {
-      id: '',
-      user_id: profile.id,
-      push_enabled: true,
-      email_enabled: true,
-      sms_enabled: false,
-      wear_reminders: true,
-      wear_reminder_times: ['09:00', '14:00', '21:00'],
-      appointment_reminders: true,
-      appointment_reminder_hours: 24,
-      tray_change_reminders: true,
-      message_notifications: true,
-      weekly_summary: true,
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('notification_settings')
-        .select('*')
-        .eq('user_id', profile.id)
-        .single()
-
-      if (data) {
-        set({ notificationSettings: data })
-      } else if (error && (error.code === 'PGRST116' || error.message?.includes('no rows'))) {
-        // No settings found, use defaults
-        set({ notificationSettings: defaults })
-      } else {
-        // Table might not exist, use defaults
-        set({ notificationSettings: defaults })
-      }
-    } catch (error) {
-      console.error('Load notification settings error:', error)
-      // Use defaults on error
-      set({ notificationSettings: defaults })
-    }
-  },
-
-  updateNotificationSettings: async (settings: Partial<NotificationSettings>) => {
-    const { profile, notificationSettings } = get()
-    if (!profile) {
-      return { success: false, error: 'Not authenticated' }
-    }
-
-    // Immediately update local state for responsive UI
-    const updatedSettings = {
-      ...notificationSettings,
-      ...settings,
-      user_id: profile.id,
-      updated_at: new Date().toISOString(),
-    } as NotificationSettings
-    set({ notificationSettings: updatedSettings })
-
-    try {
-      const { error } = await supabase
-        .from('notification_settings')
-        .upsert({
-          user_id: profile.id,
-          ...settings,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
-
-      if (error) {
-        // Check if table doesn't exist
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
-          console.warn('notification_settings table not found, using local state only')
-          return { success: true }
-        }
-        console.error('Update notification settings error:', error)
-        // Keep local state but don't show error for non-critical settings
-        return { success: true }
-      }
-
-      return { success: true }
-    } catch (error) {
-      console.error('Update notification settings exception:', error)
-      // Keep local state, don't show error
-      return { success: true }
-    }
-  },
-
-  loadUserSettings: async () => {
-    const { profile } = get()
-    if (!profile) return
-
-    // Set default values first
-    const defaults: UserSettings = {
-      id: '',
-      user_id: profile.id,
-      theme: 'system',
-      language: 'en',
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      date_format: 'MM/DD/YYYY',
-      time_format: '12h',
-      units: 'imperial',
-      haptic_feedback: true,
-      sound_enabled: true,
-      auto_start_wear: false,
-      show_daily_tip: true,
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('user_settings')
-        .select('*')
-        .eq('user_id', profile.id)
-        .single()
-
-      if (data) {
-        set({ userSettings: data })
-      } else if (error && (error.code === 'PGRST116' || error.message?.includes('no rows'))) {
-        // No settings found, use defaults
-        set({ userSettings: defaults })
-      } else {
-        // Table might not exist, use defaults
-        set({ userSettings: defaults })
-      }
-    } catch (error) {
-      console.error('Load user settings error:', error)
-      // Use defaults on error
-      set({ userSettings: defaults })
-    }
-  },
-
-  updateUserSettings: async (settings: Partial<UserSettings>) => {
-    const { profile, userSettings } = get()
-    if (!profile) {
-      return { success: false, error: 'Not authenticated' }
-    }
-
-    // Immediately update local state for responsive UI
-    const updatedSettings = {
-      ...userSettings,
-      ...settings,
-      user_id: profile.id,
-      updated_at: new Date().toISOString(),
-    } as UserSettings
-    set({ userSettings: updatedSettings })
-
-    try {
-      const { error } = await supabase
-        .from('user_settings')
-        .upsert({
-          user_id: profile.id,
-          ...settings,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
-
-      if (error) {
-        // Check if table doesn't exist
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
-          console.warn('user_settings table not found, using local state only')
-          return { success: true }
-        }
-        console.error('Update user settings error:', error)
-        // Keep local state but don't show error for non-critical settings
-        return { success: true }
-      }
-
-      return { success: true }
-    } catch (error) {
-      console.error('Update user settings exception:', error)
-      // Keep local state, don't show error
-      return { success: true }
-    }
-  },
-
-  // Helper to initialize settings for new users
-  initializeUserSettings: async () => {
-    const { profile } = get()
-    if (!profile) return
-
-    try {
-      // Initialize notification settings
-      await supabase
-        .from('notification_settings')
-        .upsert({
-          user_id: profile.id,
-          push_enabled: true,
-          email_enabled: true,
-          wear_reminders: true,
-          wear_reminder_times: ['09:00', '14:00', '21:00'],
-          appointment_reminders: true,
-          appointment_reminder_hours: 24,
-          tray_change_reminders: true,
-          message_notifications: true,
-          weekly_summary: true
-        })
-
-      // Initialize user settings
-      await supabase
-        .from('user_settings')
-        .upsert({
-          user_id: profile.id,
-          theme: 'system',
-          language: 'en',
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-          date_format: 'MM/DD/YYYY',
-          time_format: '12h',
-          haptic_feedback: true,
-          sound_enabled: true,
-          show_daily_tip: true
-        })
-
-      await get().loadNotificationSettings()
-      await get().loadUserSettings()
-    } catch (error) {
-      console.error('Initialize user settings error:', error)
-    }
-  },
-
-  // =====================================================
-  // PRACTICE INFO METHODS (FOR DOCTORS)
-  // =====================================================
-
   loadPracticeInfo: async () => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') return
+    const { userType } = get()
 
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('practice_name, practice_phone, practice_address, calendly_url, office_hours')
-        .eq('id', profile.id)
-        .single()
+      if (userType === 'standalone_doctor') {
+        const response = await standaloneDoctorApi.getMe()
 
-      if (data) {
+        if (response.error || !response.data) {
+          return
+        }
+
+        const data = response.data
+
         set({
+          profile: {
+            id: data.id,
+            email: data.email,
+            name: data.name,
+            role: 'doctor',
+          },
+          doctorCode: data.doctorCode,
           practiceInfo: {
-            practice_name: data.practice_name || '',
-            practice_phone: data.practice_phone || '',
-            practice_address: data.practice_address || '',
-            calendly_url: data.calendly_url || '',
-            office_hours: data.office_hours || '',
-          }
+            practice_name: data.practiceName || '',
+            practice_phone: data.practicePhone || '',
+            practice_address: data.practiceAddress || '',
+            calendly_url: data.calendlyUrl || '',
+            office_hours: data.officeHours || '',
+          },
         })
       }
     } catch (error) {
@@ -2291,28 +741,24 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
     }
   },
 
-  savePracticeInfo: async (info: Partial<PracticeInfo>) => {
-    const { profile } = get()
-    if (!profile || profile.role !== 'doctor') {
-      return { success: false, error: 'Not authorized' }
-    }
+  savePracticeInfo: async (info: any) => {
+    const { userType } = get()
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          practice_name: info.practice_name,
-          practice_phone: info.practice_phone,
-          practice_address: info.practice_address,
-          calendly_url: info.calendly_url,
-          office_hours: info.office_hours,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', profile.id)
+      if (userType !== 'standalone_doctor') {
+        return { success: false, error: 'Not authorized' }
+      }
 
-      if (error) {
-        console.error('Save practice info error:', error)
-        return { success: false, error: error.message }
+      const response = await standaloneDoctorApi.updateProfile({
+        practiceName: info.practice_name,
+        practicePhone: info.practice_phone,
+        practiceAddress: info.practice_address,
+        calendlyUrl: info.calendly_url,
+        officeHours: info.office_hours,
+      })
+
+      if (response.error) {
+        return { success: false, error: response.error.message }
       }
 
       // Update local state
@@ -2323,19 +769,43 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
           practice_address: info.practice_address || '',
           calendly_url: info.calendly_url || '',
           office_hours: info.office_hours || '',
-        }
+        },
       })
 
       return { success: true }
-    } catch (error: any) {
-      console.error('Save practice info exception:', error)
-      return { success: false, error: error.message }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   },
 
   hasPracticeInfo: () => {
     const { practiceInfo } = get()
     return !!(practiceInfo?.practice_name && practiceInfo?.practice_phone)
+  },
+
+  updateProfile: async (data: any) => {
+    const { userType } = get()
+
+    try {
+      if (userType === 'standalone_patient') {
+        const response = await standalonePatientApi.updateProfile(data)
+        if (response.error) {
+          return { success: false, error: response.error.message }
+        }
+        await get().loadPatientData()
+        return { success: true }
+      } else if (userType === 'standalone_doctor') {
+        const response = await standaloneDoctorApi.updateProfile(data)
+        if (response.error) {
+          return { success: false, error: response.error.message }
+        }
+        await get().loadPracticeInfo()
+        return { success: true }
+      }
+      return { success: false, error: 'Unknown user type' }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
   },
 
   // =====================================================
@@ -2350,18 +820,11 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
 
   getWeeklyProgress: () => {
     const { dailyLogs, todayWearSeconds, patient, currentSession } = get()
-    const days = []
+    const days: { date: string; hours: number }[] = []
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
-    const treatmentStartDate = patient?.treatment_start_date
 
-    // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
-    const getLogSeconds = (log: any) => {
-      if (log.wear_seconds != null) return log.wear_seconds
-      return (log.wear_minutes || 0) * 60
-    }
-
-    // Calculate current session elapsed time if timer is running (in seconds)
+    // Calculate current session elapsed time if timer is running
     let currentSessionSeconds = 0
     if (currentSession?.startTime) {
       currentSessionSeconds = Math.floor((new Date().getTime() - currentSession.startTime.getTime()) / 1000)
@@ -2379,19 +842,14 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       date.setDate(monday.getDate() + i)
       const dateStr = date.toISOString().split('T')[0]
 
-      // Only count days on or after treatment_start_date
-      const isBeforeTreatment = treatmentStartDate && dateStr < treatmentStartDate
-
       const log = dailyLogs.find(l => l.date === dateStr)
       let hours = 0
 
-      if (!isBeforeTreatment) {
-        if (dateStr === todayStr) {
-          // Include both saved seconds and current session elapsed time
-          hours = ((todayWearSeconds || 0) + currentSessionSeconds) / 3600
-        } else if (log) {
-          hours = getLogSeconds(log) / 3600
-        }
+      if (dateStr === todayStr) {
+        hours = ((todayWearSeconds || 0) + currentSessionSeconds) / 3600
+      } else if (log) {
+        const seconds = log.wearSeconds ?? log.wearMinutes * 60
+        hours = seconds / 3600
       }
 
       days.push({
@@ -2399,77 +857,54 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
         hours: Math.round(hours * 10) / 10,
       })
     }
+
     return days
   },
 
   getComplianceStats: () => {
     const { dailyLogs, patient, assignedDoctor } = get()
-    const targetSeconds = (patient?.target_hours_per_day || 22) * 3600
-    const treatmentStartDate = patient?.treatment_start_date
+    const targetHours = (patient?.dailyWearTarget || 1320) / 60 // Convert minutes to hours
+    const targetSeconds = targetHours * 3600
 
-    // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
-    const getLogSeconds = (log: any) => {
-      if (log.wear_seconds != null) return log.wear_seconds
-      return (log.wear_minutes || 0) * 60
-    }
-
-    // If no treatment started yet, return zeros
-    if (!treatmentStartDate || !assignedDoctor) {
+    if (!assignedDoctor) {
       return {
         weeklyAverage: 0,
         monthlyAverage: 0,
         streak: 0,
-        treatmentStarted: false
+        treatmentStarted: false,
       }
     }
 
-    // Find first log date - this is when tracking actually started
-    const sortedLogs = [...dailyLogs].sort((a, b) => a.date.localeCompare(b.date))
-    const firstLogDate = sortedLogs.length > 0 ? sortedLogs[0].date : null
-
-    if (!firstLogDate) {
-      return {
-        weeklyAverage: 0,
-        monthlyAverage: 0,
-        streak: 0,
-        treatmentStarted: true
-      }
+    const getLogSeconds = (log: WearLog) => {
+      return log.wearSeconds ?? log.wearMinutes * 60
     }
 
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
-    const firstLogDateObj = new Date(firstLogDate)
-    const daysSinceFirstLog = Math.max(1, Math.floor((today.getTime() - firstLogDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1)
 
-    // Calculate weekly average (last 7 days or since first log, whichever is shorter)
-    // Every calendar day counts - days without logs count as 0 hours
+    // Calculate weekly average
     const sevenDaysAgo = new Date(today)
-    sevenDaysAgo.setDate(today.getDate() - 6) // -6 to include today = 7 days
-    const weekStartDate = firstLogDate > sevenDaysAgo.toISOString().split('T')[0] ? firstLogDate : sevenDaysAgo.toISOString().split('T')[0]
-    const weekStartDateObj = new Date(weekStartDate)
-    const daysInWeekPeriod = Math.max(1, Math.floor((today.getTime() - weekStartDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+    sevenDaysAgo.setDate(today.getDate() - 6)
+    const weekStartDate = sevenDaysAgo.toISOString().split('T')[0]
 
     const weeklyLogs = dailyLogs.filter(log => log.date >= weekStartDate && log.date <= todayStr)
     const weeklyTotalSeconds = weeklyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0)
-    const weeklyAverage = weeklyTotalSeconds / daysInWeekPeriod / 3600
+    const weeklyAverage = weeklyTotalSeconds / 7 / 3600
 
-    // Calculate monthly average (last 30 days or since first log, whichever is shorter)
+    // Calculate monthly average
     const thirtyDaysAgo = new Date(today)
-    thirtyDaysAgo.setDate(today.getDate() - 29) // -29 to include today = 30 days
-    const monthStartDate = firstLogDate > thirtyDaysAgo.toISOString().split('T')[0] ? firstLogDate : thirtyDaysAgo.toISOString().split('T')[0]
-    const monthStartDateObj = new Date(monthStartDate)
-    const daysInMonthPeriod = Math.max(1, Math.floor((today.getTime() - monthStartDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+    thirtyDaysAgo.setDate(today.getDate() - 29)
+    const monthStartDate = thirtyDaysAgo.toISOString().split('T')[0]
 
     const monthlyLogs = dailyLogs.filter(log => log.date >= monthStartDate && log.date <= todayStr)
     const monthlyTotalSeconds = monthlyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0)
-    const monthlyAverage = monthlyTotalSeconds / daysInMonthPeriod / 3600
+    const monthlyAverage = monthlyTotalSeconds / 30 / 3600
 
-    // Calculate streak - check each CALENDAR day going backwards from yesterday
-    // Use 50% of target as threshold, consistent with other pages
+    // Calculate streak
     const minimumSecondsForDay = targetSeconds * 0.5
     let streak = 0
     const checkDate = new Date(today)
-    checkDate.setDate(checkDate.getDate() - 1) // Start from yesterday
+    checkDate.setDate(checkDate.getDate() - 1)
 
     while (true) {
       const dateStr = checkDate.toISOString().split('T')[0]
@@ -2477,9 +912,9 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
 
       if (log && getLogSeconds(log) >= minimumSecondsForDay) {
         streak++
-        checkDate.setDate(checkDate.getDate() - 1) // Go back one more day
+        checkDate.setDate(checkDate.getDate() - 1)
       } else {
-        break // No qualifying log for this day - streak ends
+        break
       }
     }
 
@@ -2487,7 +922,45 @@ export const usePatientStore = create<EnhancedPatientState>((set, get) => ({
       weeklyAverage: Math.round(weeklyAverage * 10) / 10,
       monthlyAverage: Math.round(monthlyAverage * 10) / 10,
       streak,
-      treatmentStarted: true
+      treatmentStarted: true,
     }
+  },
+
+  getLogForDate: (dateStr: string) => {
+    const { dailyLogs } = get()
+    const log = dailyLogs.find(l => l.date === dateStr)
+    if (log) {
+      const hours = (log.wearSeconds ?? log.wearMinutes * 60) / 3600
+      return { hours }
+    }
+    return null
+  },
+
+  logHoursForDate: async (dateStr: string, hours: number) => {
+    // This is a manual log feature - for now just update local state
+    // In a full implementation, this would call an API endpoint
+    const { dailyLogs, patient } = get()
+    const minutes = Math.round(hours * 60)
+    const seconds = Math.round(hours * 3600)
+
+    const existingIndex = dailyLogs.findIndex(l => l.date === dateStr)
+    const newLog: WearLog = {
+      id: Date.now(),
+      date: dateStr,
+      wearMinutes: minutes,
+      wearSeconds: seconds,
+      targetMinutes: patient?.dailyWearTarget || 1320,
+      trayNumber: patient?.currentTray || 1,
+    }
+
+    if (existingIndex >= 0) {
+      const updatedLogs = [...dailyLogs]
+      updatedLogs[existingIndex] = newLog
+      set({ dailyLogs: updatedLogs })
+    } else {
+      set({ dailyLogs: [...dailyLogs, newLog] })
+    }
+
+    return { success: true }
   },
 }))

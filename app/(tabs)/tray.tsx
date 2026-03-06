@@ -1,21 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, CheckCircle, Clock, AlertCircle, Calendar, Play, ChevronRight, Settings, RefreshCw, Package, History, Award, Trash2, Flame } from 'lucide-react-native';
+import { Camera, CheckCircle, Clock, AlertTriangle, XCircle, Calendar, Play, ChevronRight, Settings, RefreshCw, Package, History, Award, Flame } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
-import { Button } from '@/components/Button';
 import { useCustomAlert } from '@/components/CustomAlert';
 import { useTheme } from '@/contexts/ThemeContext';
-import * as ImagePicker from 'expo-image-picker';
 
 export default function TrayScreen() {
-  const { patient, trayChanges, dailyLogs, logTrayChange, revertToPreviousAligner, updateTreatmentInfo, startNewTreatmentBout, currentBout, treatmentBouts, loadPatientData, progressPhotos, uploadProgressPhoto, deleteProgressPhoto } = usePatientStore();
+  const { patient, trayChanges, dailyLogs, logTrayChange, updateProfile, loadPatientData } = usePatientStore();
   const [selectedFit, setSelectedFit] = useState<'ok' | 'watch' | 'not_seated' | null>(null);
   const { showAlert, AlertComponent } = useCustomAlert();
   const { colors: themeColors } = useTheme();
-  const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
 
   // Setup form state
   const [showSetup, setShowSetup] = useState(false);
@@ -23,10 +20,13 @@ export default function TrayScreen() {
   const [currentAlignerInput, setCurrentAlignerInput] = useState('1');
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Placeholder values for features not yet in API
+  const currentBout = null;
+  const treatmentBouts: any[] = [];
+
   // Handle treatment setup
   const handleSetupTreatment = async () => {
     const total = parseInt(totalAlignersInput, 10);
-    const current = parseInt(currentAlignerInput, 10);
 
     if (!total || total < 1 || total > 100) {
       showAlert({
@@ -37,18 +37,9 @@ export default function TrayScreen() {
       return;
     }
 
-    if (!current || current < 1 || current > total) {
-      showAlert({
-        title: 'Invalid Input',
-        message: `Current aligner must be between 1 and ${total}`,
-        type: 'error',
-      });
-      return;
-    }
-
     setIsUpdating(true);
     try {
-      const result = await updateTreatmentInfo(total, current);
+      const result = await updateProfile({ totalTrays: total });
       if (result.success) {
         await loadPatientData();
         setShowSetup(false);
@@ -56,7 +47,7 @@ export default function TrayScreen() {
         setCurrentAlignerInput('1');
         showAlert({
           title: 'Treatment Setup Complete!',
-          message: `You're now tracking ${total} aligners, starting at #${current}.`,
+          message: `You're now tracking ${total} aligners.`,
           type: 'success',
         });
       } else {
@@ -77,11 +68,11 @@ export default function TrayScreen() {
     }
   };
 
-  // Handle starting a new treatment bout
+  // Handle starting a new treatment bout - simplified since bouts not supported in new API
   const handleStartNewBout = () => {
     showAlert({
-      title: 'Start New Bout?',
-      message: 'This will begin a new set of aligners. Your previous bout history will be preserved. Enter your new aligner count to continue.',
+      title: 'Reset Treatment?',
+      message: 'This will reset your aligner count. Enter your new aligner count to continue.',
       type: 'info',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
@@ -94,52 +85,15 @@ export default function TrayScreen() {
   };
 
   const handleConfirmNewBout = async () => {
-    const total = parseInt(totalAlignersInput, 10);
-
-    if (!total || total < 1 || total > 100) {
-      showAlert({
-        title: 'Invalid Input',
-        message: 'Please enter a valid number of aligners (1-100)',
-        type: 'error',
-      });
-      return;
-    }
-
-    setIsUpdating(true);
-    try {
-      const result = await startNewTreatmentBout(total);
-      if (result.success) {
-        await loadPatientData();
-        setShowSetup(false);
-        setTotalAlignersInput('');
-        showAlert({
-          title: 'New Bout Started!',
-          message: `Bout ${(currentBout?.bout_number || 0) + 1} has begun with ${total} aligners.`,
-          type: 'success',
-        });
-      } else {
-        showAlert({
-          title: 'Error',
-          message: result.error || 'Failed to start new treatment',
-          type: 'error',
-        });
-      }
-    } catch (error) {
-      showAlert({
-        title: 'Error',
-        message: 'Something went wrong. Please try again.',
-        type: 'error',
-      });
-    } finally {
-      setIsUpdating(false);
-    }
+    // Same as setup since bouts not supported
+    await handleSetupTreatment();
   };
 
   // Show setup screen if no treatment configured
-  const needsSetup = !patient || !patient.total_trays || patient.total_trays === 0;
+  const needsSetup = !patient || !patient.totalTrays || patient.totalTrays === 0;
 
   if (needsSetup || showSetup) {
-    const isNewBout = patient && patient.total_trays && patient.total_trays > 0;
+    const isNewBout = patient && patient.totalTrays && patient.totalTrays > 0;
 
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: themeColors.surface }]} edges={['top', 'left', 'right']}>
@@ -256,17 +210,17 @@ export default function TrayScreen() {
 
   if (!patient) return null;
 
-  const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
-  const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
+  const currentTrayChange = trayChanges.find(change => change.toTray === patient.currentTray);
+  const trayStartDate = currentTrayChange ? new Date(currentTrayChange.changeDate).toISOString().split('T')[0] : null;
 
   // Calculate actual "qualifying" days worn - days with at least 50% of target wear time
-  const targetSeconds = (patient.target_hours_per_day || 22) * 3600;
+  const targetSeconds = ((patient.dailyWearTarget || 1320) / 60 || 22) * 3600;
   const minimumSecondsForDay = targetSeconds * 0.5; // 50% of target = ~11 hours
 
   // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
   const getLogSeconds = (log: any) => {
-    if (log.wear_seconds != null) return log.wear_seconds;
-    return (log.wear_minutes || 0) * 60;
+    if (log.wearSeconds != null) return log.wearSeconds;
+    return (log.wearMinutes || 0) * 60;
   };
 
   // Get qualifying logs for current aligner (sorted by date descending)
@@ -299,18 +253,18 @@ export default function TrayScreen() {
 
   // Calendar days since starting (for "days left" calculation)
   const calendarDaysOnTray = currentTrayChange
-    ? Math.floor((Date.now() - new Date(currentTrayChange.date_changed).getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.floor((Date.now() - new Date(currentTrayChange.changeDate).getTime()) / (1000 * 60 * 60 * 24))
     : 0;
 
   const recommendedDays = 14; // 2 weeks per tray
   const daysLeft = Math.max(0, recommendedDays - qualifyingDaysWorn);
   const isReadyForChange = qualifyingDaysWorn >= recommendedDays;
-  const isLastTray = patient.current_tray >= patient.total_trays;
+  const isLastTray = patient.currentTray >= patient.totalTrays;
 
   // Calculate incremental progress based on completed aligners + qualifying days on current aligner
-  const completedAligners = patient.current_tray - 1;
+  const completedAligners = patient.currentTray - 1;
   const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1); // Cap at 1 (100% of current aligner)
-  const totalProgress = ((completedAligners + currentAlignerProgress) / patient.total_trays) * 100;
+  const totalProgress = ((completedAligners + currentAlignerProgress) / patient.totalTrays) * 100;
 
   const handleStartNewAligner = () => {
     if (!selectedFit) {
@@ -331,7 +285,7 @@ export default function TrayScreen() {
       return;
     }
 
-    const nextTray = patient.current_tray + 1;
+    const nextTray = patient.currentTray + 1;
 
     // Show different messages based on timing
     if (!isReadyForChange) {
@@ -381,103 +335,24 @@ export default function TrayScreen() {
 
   const fitOptions = [
     { value: 'ok', label: 'Fits Well', description: 'Snug and comfortable', icon: CheckCircle, color: Colors.success },
-    { value: 'watch', label: 'Slightly Loose', description: 'Small gaps present', icon: AlertCircle, color: Colors.warning },
-    { value: 'not_seated', label: 'Not Seating', description: 'Significant gaps', icon: AlertCircle, color: Colors.error },
+    { value: 'watch', label: 'Slightly Loose', description: 'Small gaps present', icon: AlertTriangle, color: Colors.warning },
+    { value: 'not_seated', label: 'Not Seating', description: 'Significant gaps', icon: XCircle, color: Colors.error },
   ] as const;
 
-  const currentTrayPhotos = progressPhotos.filter(p => p.tray_number === patient.current_tray);
-  const getPhotoForType = (type: 'front' | 'left' | 'right') =>
-    currentTrayPhotos.find(p => p.photo_type === type);
+  // Photo features temporarily disabled - not yet supported in new API
+  const currentTrayPhotos: any[] = [];
+  const getPhotoForType = (_type: 'front' | 'left' | 'right') => null;
 
-  const handleTakePhoto = (type: 'front' | 'left' | 'right') => {
-    Alert.alert(
-      `${type.charAt(0).toUpperCase() + type.slice(1)} Photo`,
-      'Choose a source',
-      [
-        {
-          text: 'Camera',
-          onPress: async () => {
-            try {
-              const permission = await ImagePicker.requestCameraPermissionsAsync();
-              if (!permission.granted) {
-                showAlert({ title: 'Permission Required', message: 'Camera access is needed to take progress photos.', type: 'warning' });
-                return;
-              }
-              const result = await ImagePicker.launchCameraAsync({
-                mediaTypes: ['images'],
-                quality: 0.7,
-                allowsEditing: true,
-                aspect: [4, 3],
-              });
-              if (!result.canceled && result.assets[0]) {
-                setUploadingPhoto(type);
-                const res = await uploadProgressPhoto(result.assets[0].uri, type);
-                setUploadingPhoto(null);
-                if (!res.success) {
-                  showAlert({ title: 'Upload Failed', message: res.error || 'Could not save photo.', type: 'error' });
-                }
-              }
-            } catch (error: any) {
-              // Camera not available (e.g., on simulator) - show helpful message
-              if (error?.message?.includes('not available')) {
-                showAlert({
-                  title: 'Camera Not Available',
-                  message: 'Camera is not available on this device. Please use the Gallery option instead.',
-                  type: 'info'
-                });
-              } else {
-                showAlert({ title: 'Error', message: 'Could not open camera. Try using Gallery instead.', type: 'error' });
-              }
-            }
-          },
-        },
-        {
-          text: 'Gallery',
-          onPress: async () => {
-            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (!permission.granted) {
-              showAlert({ title: 'Permission Required', message: 'Photo library access is needed to select progress photos.', type: 'warning' });
-              return;
-            }
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'],
-              quality: 0.7,
-              allowsEditing: true,
-              aspect: [4, 3],
-            });
-            if (!result.canceled && result.assets[0]) {
-              setUploadingPhoto(type);
-              const res = await uploadProgressPhoto(result.assets[0].uri, type);
-              setUploadingPhoto(null);
-              if (!res.success) {
-                showAlert({ title: 'Upload Failed', message: res.error || 'Could not save photo.', type: 'error' });
-              }
-            }
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const handleTakePhoto = (_type: 'front' | 'left' | 'right') => {
+    showAlert({
+      title: 'Coming Soon',
+      message: 'Photo progress tracking will be available in a future update.',
+      type: 'info',
+    });
   };
 
-  const handleDeletePhoto = (photoId: string, type: string) => {
-    Alert.alert(
-      'Delete Photo',
-      `Remove this ${type} photo?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            const res = await deleteProgressPhoto(photoId);
-            if (!res.success) {
-              showAlert({ title: 'Error', message: res.error || 'Could not delete photo.', type: 'error' });
-            }
-          },
-        },
-      ]
-    );
+  const handleDeletePhoto = (_photoId: string, _type: string) => {
+    // Not supported
   };
 
   return (
@@ -495,12 +370,12 @@ export default function TrayScreen() {
         <Card style={styles.statusCard}>
           <View style={styles.currentAlignerHeader}>
             <View style={styles.alignerBadge}>
-              <Text style={styles.alignerBadgeText}>#{patient.current_tray}</Text>
+              <Text style={styles.alignerBadgeText}>#{patient.currentTray}</Text>
             </View>
             <View style={styles.currentAlignerInfo}>
               <Text style={[styles.currentAlignerTitle, { color: themeColors.textPrimary }]}>Current Aligner</Text>
               <Text style={[styles.currentAlignerProgress, { color: themeColors.textSecondary }]}>
-                {patient.current_tray} of {patient.total_trays} ({Math.round(totalProgress)}% complete)
+                {patient.currentTray} of {patient.totalTrays} ({Math.round(totalProgress)}% complete)
               </Text>
             </View>
           </View>
@@ -560,8 +435,8 @@ export default function TrayScreen() {
             {isLastTray
               ? "You're on your final aligner! Contact your orthodontist to discuss next steps."
               : isReadyForChange
-                ? `Great timing! You're ready to move to aligner #${patient.current_tray + 1}.`
-                : `First, tell us how your current aligner fits, then tap the button below to start aligner #${patient.current_tray + 1}.`
+                ? `Great timing! You're ready to move to aligner #${patient.currentTray + 1}.`
+                : `First, tell us how your current aligner fits, then tap the button below to start aligner #${patient.currentTray + 1}.`
             }
           </Text>
 
@@ -574,7 +449,7 @@ export default function TrayScreen() {
               onPress={handleStartNewAligner}
             >
               <Text style={styles.startNewButtonText}>
-                Start Aligner #{patient.current_tray + 1}
+                Start Aligner #{patient.currentTray + 1}
               </Text>
               <ChevronRight size={20} color={Colors.background} />
             </TouchableOpacity>
@@ -644,45 +519,26 @@ export default function TrayScreen() {
 
           <View style={styles.photoButtons}>
             {(['front', 'right', 'left'] as const).map((type) => {
-              const existingPhoto = getPhotoForType(type);
-              const isUploading = uploadingPhoto === type;
               return (
                 <TouchableOpacity
                   key={type}
                   style={[
                     styles.photoButton,
-                    { borderColor: existingPhoto ? Colors.success : themeColors.border },
-                    existingPhoto && styles.photoButtonCaptured,
+                    { borderColor: themeColors.border },
                   ]}
                   onPress={() => handleTakePhoto(type)}
-                  onLongPress={() => existingPhoto && handleDeletePhoto(existingPhoto.id, type)}
-                  disabled={isUploading}
                 >
-                  {isUploading ? (
-                    <ActivityIndicator size="small" color={themeColors.primary} />
-                  ) : existingPhoto ? (
-                    <Image
-                      source={{ uri: existingPhoto.photo_url }}
-                      style={styles.photoThumbnail}
-                    />
-                  ) : (
-                    <Camera size={20} color={themeColors.primary} />
-                  )}
+                  <Camera size={20} color={themeColors.primary} />
                   <Text style={[styles.photoButtonText, { color: themeColors.textPrimary }]}>
                     {type.charAt(0).toUpperCase() + type.slice(1)}
                   </Text>
-                  {existingPhoto && (
-                    <CheckCircle size={14} color={Colors.success} />
-                  )}
                 </TouchableOpacity>
               );
             })}
           </View>
-          {currentTrayPhotos.length > 0 && (
-            <Text style={[styles.photoHint, { color: themeColors.textSecondary }]}>
-              Tap to retake. Long press to delete.
-            </Text>
-          )}
+          <Text style={[styles.photoHint, { color: themeColors.textSecondary }]}>
+            Photo tracking coming soon
+          </Text>
         </Card>
 
         {/* Treatment Settings */}
@@ -694,12 +550,12 @@ export default function TrayScreen() {
 
           <View style={[styles.treatmentInfoRow, { borderBottomColor: themeColors.border }]}>
             <Text style={[styles.treatmentInfoLabel, { color: themeColors.textSecondary }]}>Total Aligners</Text>
-            <Text style={[styles.treatmentInfoValue, { color: themeColors.textPrimary }]}>{patient.total_trays}</Text>
+            <Text style={[styles.treatmentInfoValue, { color: themeColors.textPrimary }]}>{patient.totalTrays}</Text>
           </View>
 
           <View style={[styles.treatmentInfoRow, { borderBottomColor: themeColors.border }]}>
             <Text style={[styles.treatmentInfoLabel, { color: themeColors.textSecondary }]}>Current Aligner</Text>
-            <Text style={[styles.treatmentInfoValue, { color: themeColors.textPrimary }]}>#{patient.current_tray}</Text>
+            <Text style={[styles.treatmentInfoValue, { color: themeColors.textPrimary }]}>#{patient.currentTray}</Text>
           </View>
 
           {currentBout && (
@@ -709,44 +565,7 @@ export default function TrayScreen() {
             </View>
           )}
 
-          {/* Revert to Previous Aligner */}
-          {patient.current_tray > 1 && (
-            <TouchableOpacity
-              style={[styles.revertButton, { borderColor: Colors.warning }]}
-              onPress={() => {
-                showAlert({
-                  title: 'Revert to Previous Aligner?',
-                  message: `This will change you back to Aligner #${patient.current_tray - 1} and remove the entry for Aligner #${patient.current_tray}. Use this if you switched too early.`,
-                  type: 'warning',
-                  buttons: [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Revert',
-                      onPress: async () => {
-                        const result = await revertToPreviousAligner();
-                        if (result.success) {
-                          showAlert({
-                            title: 'Reverted Successfully',
-                            message: `You're now back on Aligner #${patient.current_tray - 1}.`,
-                            type: 'success',
-                          });
-                        } else {
-                          showAlert({
-                            title: 'Error',
-                            message: result.error || 'Failed to revert aligner',
-                            type: 'error',
-                          });
-                        }
-                      },
-                    },
-                  ],
-                });
-              }}
-            >
-              <ChevronRight size={18} color={Colors.warning} style={{ transform: [{ rotate: '180deg' }] }} />
-              <Text style={[styles.revertButtonText, { color: Colors.warning }]}>Go Back to Aligner #{patient.current_tray - 1}</Text>
-            </TouchableOpacity>
-          )}
+          {/* Revert functionality - not yet supported in new API */}
 
           <TouchableOpacity
             style={styles.newBoutButton}
@@ -818,46 +637,37 @@ export default function TrayScreen() {
         <Card style={styles.historyCard}>
           <Text style={[styles.sectionTitle, { color: themeColors.textPrimary }]}>Aligner History</Text>
           {trayChanges.length > 0 ? (
-            trayChanges.slice(0, 5).map((change) => {
-              // Find the bout for this change
-              const bout = treatmentBouts.find(b => b.id === change.bout_id);
-              const boutNumber = bout?.bout_number || 1;
-
-              return (
-                <View key={change.id} style={[styles.historyItem, { borderBottomColor: themeColors.border }]}>
-                  <View style={styles.historyLeft}>
-                    <View style={[styles.historyNumber, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
-                      <Text style={styles.historyNumberText}>#{change.tray_number}</Text>
-                    </View>
-                    <View style={styles.historyInfo}>
-                      <Text style={[styles.historyTray, { color: themeColors.textPrimary }]}>
-                        Aligner {change.tray_number}
-                        {treatmentBouts.length > 1 && (
-                          <Text style={[styles.historyBout, { color: themeColors.textSecondary }]}> (Bout {boutNumber})</Text>
-                        )}
-                      </Text>
-                      <Text style={[styles.historyDate, { color: themeColors.textSecondary }]}>
-                        Started {new Date(change.date_changed).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
-                      </Text>
-                    </View>
+            trayChanges.slice(0, 5).map((change) => (
+              <View key={change.id} style={[styles.historyItem, { borderBottomColor: themeColors.border }]}>
+                <View style={styles.historyLeft}>
+                  <View style={[styles.historyNumber, { backgroundColor: themeColors.surface, borderColor: themeColors.border }]}>
+                    <Text style={styles.historyNumberText}>#{change.toTray}</Text>
                   </View>
-                  <View style={[
-                    styles.historyStatus,
-                    { backgroundColor: change.fit_status === 'ok' || change.fit_status === 'good' ? Colors.success :
-                      change.fit_status === 'watch' ? Colors.warning : Colors.error }
-                  ]}>
-                    <Text style={styles.historyStatusText}>
-                      {change.fit_status === 'ok' || change.fit_status === 'good' ? 'Good' :
-                       change.fit_status === 'watch' ? 'Fair' : 'Poor'}
+                  <View style={styles.historyInfo}>
+                    <Text style={[styles.historyTray, { color: themeColors.textPrimary }]}>
+                      Aligner {change.toTray}
+                    </Text>
+                    <Text style={[styles.historyDate, { color: themeColors.textSecondary }]}>
+                      Started {new Date(change.changeDate).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
                     </Text>
                   </View>
                 </View>
-              );
-            })
+                <View style={[
+                  styles.historyStatus,
+                  { backgroundColor: change.fitStatus === 'ok' || change.fitStatus === 'good' ? Colors.success :
+                    change.fitStatus === 'watch' ? Colors.warning : Colors.error }
+                ]}>
+                  <Text style={styles.historyStatusText}>
+                    {change.fitStatus === 'ok' || change.fitStatus === 'good' ? 'Good' :
+                     change.fitStatus === 'watch' ? 'Fair' : 'Poor'}
+                  </Text>
+                </View>
+              </View>
+            ))
           ) : (
             <View style={styles.emptyHistory}>
               <Text style={[styles.emptyHistoryText, { color: themeColors.textSecondary }]}>
@@ -1201,6 +1011,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     backgroundColor: Colors.surface,
+
   },
   previewCard: {
     backgroundColor: Colors.primary + '10',

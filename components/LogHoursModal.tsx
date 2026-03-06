@@ -28,7 +28,7 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const targetHours = patient?.target_hours_per_day || 22;
+  const targetHours = patient?.dailyWearTarget ? patient.dailyWearTarget / 60 : 22;
 
   // Load existing hours when date changes
   useEffect(() => {

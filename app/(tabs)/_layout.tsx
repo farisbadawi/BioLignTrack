@@ -21,8 +21,8 @@ function TabLoadingScreen() {
 
 // Patient Tab Layout
 function PatientTabLayout() {
-  const { unreadMessages } = usePatientStore();
   const { colors } = useTheme();
+  const unreadMessages = 0; // TODO: Implement messaging
 
   return (
     <Tabs
@@ -107,8 +107,8 @@ function PatientTabLayout() {
 
 // Doctor Tab Layout
 function DoctorTabLayout() {
-  const { unreadMessages } = usePatientStore();
   const { colors } = useTheme();
+  const unreadMessages = 0; // TODO: Implement messaging
 
   return (
     <Tabs
@@ -193,13 +193,13 @@ function DoctorTabLayout() {
 
 // Main Layout Component with Role Detection
 export default function TabLayout() {
-  const { userRole, loading, profile } = usePatientStore();
+  const { userType, loading, profile } = usePatientStore();
 
   if (loading || !profile) {
     return <TabLoadingScreen />;
   }
 
-  if (userRole === 'doctor') {
+  if (userType === 'standalone_doctor') {
     return <DoctorTabLayout />;
   }
 

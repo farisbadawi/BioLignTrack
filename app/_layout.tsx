@@ -1,15 +1,16 @@
-// app/_layout.tsx - FINAL WORKING VERSION
+// app/_layout.tsx - Auth0 + PMS Backend Version
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { StatusBar } from "expo-status-bar";
-import { View, Text, ActivityIndicator, Image } from "react-native";
+import { View, ActivityIndicator, Image } from "react-native";
 import { usePatientStore } from "@/stores/patient-store";
-import { supabase } from "@/lib/supabase";
 import { useRouter } from "expo-router";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
+import { Auth0Provider, useAuth0 } from "@/contexts/Auth0Context";
 
 // Prevent the splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -20,17 +21,14 @@ function RootLayoutNav() {
   const [isReady, setIsReady] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
   const router = useRouter();
-  const {
-    profile,
-    isAuthenticated,
-    initialize,
-    clearAuth
-  } = usePatientStore();
+  const { profile, isAuthenticated, initialize, clearAuth } = usePatientStore();
+  const { isLoading: auth0Loading, isAuthenticated: auth0Authenticated, user: auth0User, logout: auth0Logout } = useAuth0();
   const { isDark, colors } = useTheme();
 
-  // Single auth listener that handles everything
+  // Initialize store when Auth0 auth state changes
   useEffect(() => {
-    let isInitialEvent = true;
+    // Wait for Auth0 to finish loading
+    if (auth0Loading) return;
 
     // Hard timeout - app loads after 5 seconds no matter what
     const hardTimeout = setTimeout(() => {
@@ -42,52 +40,35 @@ function RootLayoutNav() {
       }
     }, 5000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        // Ignore token refresh events - they're normal and noisy
-        if (event === 'TOKEN_REFRESHED') return;
-
-        console.log('Auth event:', event, session ? 'has session' : 'no session');
-
-        if (event === 'INITIAL_SESSION') {
-          // This fires once on app load with the current session state
-          if (session?.user) {
-            console.log('Initial session found, initializing...');
-            try {
-              await Promise.race([
-                initialize(),
-                new Promise((_, reject) => setTimeout(() => reject('timeout'), 4000))
-              ]);
-            } catch {
-              console.log('Initialize timed out, continuing anyway...');
-            }
-          } else {
-            console.log('No initial session');
-            clearAuth();
-          }
-
-          clearTimeout(hardTimeout);
-          setInitialCheckDone(true);
-          setIsReady(true);
-          SplashScreen.hideAsync().catch(() => {});
-          isInitialEvent = false;
-        } else if (event === 'SIGNED_IN' && !isInitialEvent) {
-          console.log('User signed in');
-          await initialize();
-          router.replace('/(tabs)');
-        } else if (event === 'SIGNED_OUT') {
-          console.log('User signed out');
+    const initializeApp = async () => {
+      try {
+        if (auth0Authenticated && auth0User) {
+          console.log('Auth0 authenticated, initializing store...');
+          await Promise.race([
+            initialize(),
+            new Promise((_, reject) => setTimeout(() => reject('timeout'), 4000))
+          ]);
+        } else {
+          console.log('No Auth0 session');
           clearAuth();
-          router.replace('/role-selection');
         }
+      } catch (error) {
+        console.log('Initialize error:', error);
+        clearAuth();
+      } finally {
+        clearTimeout(hardTimeout);
+        setInitialCheckDone(true);
+        setIsReady(true);
+        SplashScreen.hideAsync().catch(() => {});
       }
-    );
+    };
+
+    initializeApp();
 
     return () => {
       clearTimeout(hardTimeout);
-      subscription.unsubscribe();
     };
-  }, []);
+  }, [auth0Loading, auth0Authenticated, auth0User]);
 
   // Handle routing after initial check is done
   useEffect(() => {
@@ -100,7 +81,7 @@ function RootLayoutNav() {
       console.log('Routing to role selection');
       router.replace('/role-selection');
     }
-  }, [initialCheckDone]);
+  }, [initialCheckDone, isAuthenticated, profile]);
 
   if (!isReady) {
     return (
@@ -141,9 +122,13 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeProvider>
-          <RootLayoutNav />
-        </ThemeProvider>
+        <Auth0Provider>
+          <ThemeProvider>
+            <NotificationProvider>
+              <RootLayoutNav />
+            </NotificationProvider>
+          </ThemeProvider>
+        </Auth0Provider>
       </GestureHandlerRootView>
     </QueryClientProvider>
   );

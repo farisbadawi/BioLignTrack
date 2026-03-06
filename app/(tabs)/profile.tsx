@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -45,9 +46,11 @@ import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
+import { CodeInput } from '@/components/CodeInput';
 import { useCustomAlert } from '@/components/CustomAlert';
 import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useNotifications } from '@/hooks/useNotifications';
 
 // Time picker modal component
 const TimePickerModal = ({
@@ -143,23 +146,35 @@ export default function ProfileScreen() {
   const {
     patient,
     profile,
-    userRole,
+    userType,
     signOut,
     assignedDoctor,
     joinDoctorByCode,
     getDoctorCode,
-    notificationSettings,
-    userSettings,
-    updateNotificationSettings,
-    updateUserSettings,
-    loadNotificationSettings,
-    loadUserSettings,
-    treatmentBouts,
-    currentBout,
     getComplianceStats,
     dailyLogs,
     trayChanges,
   } = usePatientStore();
+
+  // Local state for notification settings (will be stored in API later)
+  const [notificationSettings, setNotificationSettings] = useState({
+    push_enabled: true,
+    email_enabled: true,
+    message_notifications: true,
+    wear_reminders: true,
+    wear_reminder_times: ['09:00', '14:00', '21:00'],
+    tray_change_reminders: true,
+    appointment_reminders: true,
+    weekly_summary: true,
+  });
+
+  // Local state for user settings
+  const [userSettings, setUserSettings] = useState({
+    language: 'en',
+    time_format: '12h',
+    haptic_feedback: true,
+    sound_enabled: true,
+  });
 
   const [doctorCodeInput, setDoctorCodeInput] = useState('');
   const [isLinkingDoctor, setIsLinkingDoctor] = useState(false);
@@ -168,15 +183,14 @@ export default function ProfileScreen() {
   const [savingSettings, setSavingSettings] = useState(false);
   const { showAlert, AlertComponent } = useCustomAlert();
   const { theme, isDark, colors: themeColors, setTheme } = useTheme();
+  const { requestPermission, checkPermission, cancelAll } = useNotifications();
 
   // Load settings on mount
   useEffect(() => {
-    if (userRole === 'doctor') {
+    if (userType === 'standalone_doctor') {
       loadDoctorCode();
     }
-    loadNotificationSettings();
-    loadUserSettings();
-  }, [userRole]);
+  }, [userType]);
 
   const loadDoctorCode = async () => {
     const code = await getDoctorCode?.();
@@ -206,7 +220,7 @@ export default function ProfileScreen() {
     if (!doctorCodeInput.trim()) {
       showAlert({
         title: 'Error',
-        message: 'Please enter a doctor code',
+        message: 'Please enter a code',
         type: 'error',
       });
       return;
@@ -216,16 +230,19 @@ export default function ProfileScreen() {
     try {
       const result = await joinDoctorByCode(doctorCodeInput.trim());
       if (result.success) {
+        const message = result.type === 'pms'
+          ? 'Your account is now linked to your clinic!'
+          : 'You are now linked to your doctor!';
         showAlert({
           title: 'Success!',
-          message: 'You are now linked to your doctor!',
+          message,
           type: 'success',
         });
         setDoctorCodeInput('');
       } else {
         showAlert({
           title: 'Error',
-          message: result.error || 'Failed to link to doctor',
+          message: result.error || 'Invalid code. Please check and try again.',
           type: 'error',
         });
       }
@@ -244,32 +261,32 @@ export default function ProfileScreen() {
     key: string,
     value: boolean | string | string[] | number
   ) => {
-    setSavingSettings(true);
-    const result = await updateNotificationSettings({ [key]: value });
-    setSavingSettings(false);
-    if (!result.success) {
-      showAlert({
-        title: 'Error',
-        message: 'Failed to update settings',
-        type: 'error',
-      });
+    // If enabling a notification setting, request permission first
+    if (value === true && (key === 'wear_reminders' || key === 'tray_change_reminders' || key === 'message_notifications')) {
+      const hasPermission = await checkPermission();
+      if (!hasPermission) {
+        const granted = await requestPermission();
+        if (!granted) {
+          showAlert({
+            title: 'Notifications Disabled',
+            message: 'Please enable notifications in your device settings to receive reminders.',
+            type: 'warning',
+          });
+          return; // Don't save the setting if permission wasn't granted
+        }
+      }
     }
+
+    // Update local state (would save to API in production)
+    setNotificationSettings(prev => ({ ...prev, [key]: value }));
   };
 
   const handleUserSettingChange = async (
     key: string,
     value: boolean | string
   ) => {
-    setSavingSettings(true);
-    const result = await updateUserSettings({ [key]: value });
-    setSavingSettings(false);
-    if (!result.success) {
-      showAlert({
-        title: 'Error',
-        message: 'Failed to update settings',
-        type: 'error',
-      });
-    }
+    // Update local state (would save to API in production)
+    setUserSettings(prev => ({ ...prev, [key]: value }));
   };
 
   if (!profile) {
@@ -293,6 +310,8 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Cancel all scheduled notifications on sign out
+              await cancelAll();
               await signOut();
             } catch (error) {
               showAlert({
@@ -377,45 +396,45 @@ export default function ProfileScreen() {
   );
 
   const getRoleDisplayName = () => {
-    return userRole === 'doctor' ? 'Doctor' : 'Patient';
+    return userType === 'standalone_doctor' ? 'Doctor' : 'Patient';
   };
 
   const getDisplayName = () => {
-    if (userRole === 'doctor') {
-      return profile.name;
+    if (userType === 'standalone_doctor') {
+      return profile?.name || 'Doctor';
     }
-    return patient?.name || profile.name;
+    return patient?.name || profile?.name || 'Patient';
   };
 
   const getDisplayEmail = () => {
-    return patient?.email || profile.email;
+    return patient?.email || profile?.email || '';
   };
 
   const getTreatmentInfo = () => {
-    if (userRole === 'patient' && patient) {
-      const boutInfo = currentBout ? ` (Treatment ${currentBout.bout_number})` : '';
-      return `Aligner ${patient.current_tray} of ${patient.total_trays}${boutInfo}`;
-    } else if (userRole === 'doctor') {
+    if (userType === 'standalone_patient' && patient) {
+      return `Aligner ${patient.currentTray} of ${patient.totalTrays}`;
+    } else if (userType === 'standalone_doctor') {
       return 'Managing patient treatments';
     }
     return 'Account active';
   };
 
-  const complianceStats = userRole === 'patient' ? getComplianceStats() : null;
+  const complianceStats = userType === 'standalone_patient' ? getComplianceStats() : null;
 
   // Calculate incremental treatment progress based on qualifying days
   const calculateTreatmentProgress = () => {
     if (!patient) return 0;
-    const currentTrayChange = trayChanges.find(change => change.tray_number === patient.current_tray);
-    const trayStartDate = currentTrayChange ? new Date(currentTrayChange.date_changed).toISOString().split('T')[0] : null;
-    const targetSeconds = (patient.target_hours_per_day || 22) * 3600;
+    const currentTrayChange = trayChanges.find(change => change.toTray === patient.currentTray);
+    const trayStartDate = currentTrayChange ? new Date(currentTrayChange.changeDate).toISOString().split('T')[0] : null;
+    const targetHours = (patient.dailyWearTarget || 1320) / 60;
+    const targetSeconds = targetHours * 3600;
     const minimumSecondsForDay = targetSeconds * 0.5;
     const recommendedDays = 14;
 
-    // Helper to get seconds from log (uses wear_seconds if available, otherwise wear_minutes * 60)
+    // Helper to get seconds from log (uses wearSeconds if available, otherwise wearMinutes * 60)
     const getLogSeconds = (log: any) => {
-      if (log.wear_seconds != null) return log.wear_seconds;
-      return (log.wear_minutes || 0) * 60;
+      if (log.wearSeconds != null) return log.wearSeconds;
+      return (log.wearMinutes || 0) * 60;
     };
 
     const qualifyingDaysWorn = trayStartDate
@@ -425,9 +444,9 @@ export default function ProfileScreen() {
         }).length
       : 0;
 
-    const completedAligners = patient.current_tray - 1;
+    const completedAligners = patient.currentTray - 1;
     const currentAlignerProgress = Math.min(qualifyingDaysWorn / recommendedDays, 1);
-    return ((completedAligners + currentAlignerProgress) / patient.total_trays) * 100;
+    return ((completedAligners + currentAlignerProgress) / patient.totalTrays) * 100;
   };
 
   const treatmentProgress = calculateTreatmentProgress();
@@ -488,7 +507,7 @@ export default function ProfileScreen() {
           </View>
 
           {/* Treatment Progress - Only for patients */}
-          {userRole === 'patient' && patient && (
+          {userType === 'standalone_patient' && patient && (
             <View style={styles.treatmentProgress}>
               <Text style={styles.progressLabel}>Treatment Progress</Text>
               <View style={[styles.progressBar, { backgroundColor: themeColors.border }]}>
@@ -511,7 +530,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Compliance Stats for patients */}
-          {userRole === 'patient' && complianceStats && (
+          {userType === 'standalone_patient' && complianceStats && (
             <>
               <View style={[styles.statsRow, { borderTopColor: themeColors.border }]}>
                 <View style={styles.statItem}>
@@ -525,8 +544,8 @@ export default function ProfileScreen() {
                 </View>
                 <View style={[styles.statDivider, { backgroundColor: themeColors.border }]} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{treatmentBouts.length}</Text>
-                  <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Treatments</Text>
+                  <Text style={styles.statValue}>{patient?.currentTray || 1}</Text>
+                  <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>Current Tray</Text>
                 </View>
               </View>
               <Text style={[styles.statsNote, { color: themeColors.textSecondary }]}>
@@ -537,7 +556,7 @@ export default function ProfileScreen() {
         </Card>
 
         {/* Doctor Code Section - For Doctors */}
-        {userRole === 'doctor' && (
+        {userType === 'standalone_doctor' && (
           <ProfileSection title="Your Doctor Code">
             <View style={styles.doctorCodeSection}>
               <Text style={[styles.doctorCodeLabel, { color: themeColors.textSecondary }]}>
@@ -558,7 +577,7 @@ export default function ProfileScreen() {
         )}
 
         {/* Link to Doctor Section - For Patients */}
-        {userRole === 'patient' && (
+        {userType === 'standalone_patient' && (
           <ProfileSection title="Your Doctor">
             <View style={styles.doctorLinkSection}>
               {assignedDoctor ? (
@@ -575,26 +594,22 @@ export default function ProfileScreen() {
                 </View>
               ) : (
                 <View style={styles.linkDoctorForm}>
-                  <Text style={[styles.linkDoctorLabel, { color: themeColors.textSecondary }]}>
-                    Enter your doctor's code to link your account:
+                  <Text style={[styles.linkDoctorLabel, { color: themeColors.textSecondary, textAlign: 'center' }]}>
+                    Enter your invite code or doctor code to link your account:
                   </Text>
-                  <View style={styles.linkDoctorInputRow}>
-                    <TextInput
-                      style={[styles.linkDoctorInput, { borderColor: themeColors.border, color: themeColors.textPrimary, backgroundColor: themeColors.surface }]}
-                      placeholder="Enter doctor code"
-                      placeholderTextColor={themeColors.textSecondary}
+                  <View style={styles.codeInputWrapper}>
+                    <CodeInput
                       value={doctorCodeInput}
-                      onChangeText={text => setDoctorCodeInput(text.toUpperCase())}
-                      autoCapitalize="characters"
-                      autoCorrect={false}
-                    />
-                    <Button
-                      title={isLinkingDoctor ? 'Linking...' : 'Link'}
-                      onPress={handleLinkDoctor}
-                      disabled={isLinkingDoctor || !doctorCodeInput.trim()}
-                      style={styles.linkButton}
+                      onChange={setDoctorCodeInput}
+                      length={6}
                     />
                   </View>
+                  <Button
+                    title={isLinkingDoctor ? 'Linking...' : 'Link Account'}
+                    onPress={handleLinkDoctor}
+                    disabled={isLinkingDoctor || doctorCodeInput.length !== 6}
+                    style={styles.linkButton}
+                  />
                 </View>
               )}
             </View>
@@ -646,7 +661,7 @@ export default function ProfileScreen() {
               />
             }
           />
-          {userRole === 'patient' && (
+          {userType === 'standalone_patient' && (
             <>
               <View style={[styles.divider, { backgroundColor: themeColors.border }]} />
               <SettingRow
@@ -796,12 +811,12 @@ export default function ProfileScreen() {
         </ProfileSection>
 
         {/* Treatment Settings - Only for patients */}
-        {userRole === 'patient' && patient && (
+        {userType === 'standalone_patient' && patient && (
           <ProfileSection title="Treatment Settings">
             <SettingRow
               icon={Settings}
               title="Daily Wear Goal"
-              subtitle={`${patient.target_hours_per_day} hours per day`}
+              subtitle={`${Math.round((patient.dailyWearTarget || 1320) / 60)} hours per day`}
               onPress={() => {
                 showAlert({
                   title: 'Daily Wear Goal',
@@ -822,7 +837,7 @@ export default function ProfileScreen() {
         )}
 
         {/* Practice Settings - Only for doctors */}
-        {userRole === 'doctor' && (
+        {userType === 'standalone_doctor' && (
           <ProfileSection title="Practice Settings">
             <SettingRow
               icon={Building2}
@@ -915,7 +930,7 @@ export default function ProfileScreen() {
           <Text style={[styles.appInfoText, { color: themeColors.textSecondary }]}>BioLign Progress v1.0.0</Text>
           <Text style={[styles.appInfoText, { color: themeColors.textSecondary }]}>2024 BioLign Orthodontics</Text>
           <Text style={[styles.appInfoText, { color: themeColors.textSecondary }]}>
-            Account: {getRoleDisplayName()} | ID: {profile.id.slice(0, 8)}...
+            Account: {getRoleDisplayName()} | ID: {String(profile?.id || '').slice(0, 8) || 'N/A'}
           </Text>
         </View>
       </ScrollView>
@@ -1217,29 +1232,19 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
-  linkDoctorForm: {},
+  linkDoctorForm: {
+    alignItems: 'center',
+  },
   linkDoctorLabel: {
     fontSize: 14,
     color: Colors.textSecondary,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
-  linkDoctorInputRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  linkDoctorInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    fontSize: 16,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.surface,
+  codeInputWrapper: {
+    marginVertical: Spacing.md,
   },
   linkButton: {
-    minWidth: 80,
+    minWidth: 140,
   },
   // Modal styles
   modalOverlay: {
