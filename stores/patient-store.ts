@@ -604,8 +604,19 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     const { userType } = get()
 
     try {
-      // For standalone patients, try standalone doctor code first
+      // For standalone patients, try PMS link first, then standalone doctor
       if (userType === 'standalone_patient') {
+        // Try PMS invite code first - this converts standalone to PMS patient
+        const pmsResponse = await linkedPatientApi.link(code)
+
+        if (!pmsResponse.error && pmsResponse.data) {
+          // Success - user is now a PMS-linked patient
+          // Reinitialize to load the new user type (will change to 'linked')
+          await get().initialize()
+          return { success: true, type: 'pms' }
+        }
+
+        // PMS failed, try as standalone doctor code
         const standaloneResponse = await standalonePatientApi.joinDoctor(code)
 
         if (!standaloneResponse.error) {
@@ -614,9 +625,8 @@ export const usePatientStore = create<PatientState>((set, get) => ({
           return { success: true, type: 'standalone' }
         }
 
-        // If standalone failed, the code might be invalid - don't try PMS
-        // (standalone patients can't become PMS patients)
-        return { success: false, error: standaloneResponse.error.message }
+        // Both failed
+        return { success: false, error: 'Invalid code. Please check and try again.' }
       }
 
       // For new users (type === 'none'), try both code types
