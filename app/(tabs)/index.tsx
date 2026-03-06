@@ -20,6 +20,7 @@ function PatientDashboard() {
   const {
     patient,
     profile,
+    userType,
     todayWearMinutes,
     todayWearSeconds,
     currentSession,
@@ -77,8 +78,8 @@ function PatientDashboard() {
     return 'Good evening,';
   };
 
-  // Check if treatment has started (patient linked to doctor)
-  const treatmentStarted = !!assignedDoctor && !!patient.startDate;
+  // Check if treatment has started (patient linked to doctor OR linked via PMS)
+  const treatmentStarted = userType === 'linked' || (!!assignedDoctor && !!patient.startDate);
 
   const weeklyData = getWeeklyProgress();
   const targetHours = (patient.dailyWearTarget || 1320) / 60; // Convert minutes to hours

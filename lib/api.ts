@@ -81,6 +81,50 @@ export const linkedPatientApi = {
   getAppointments: () =>
     apiRequest<{ upcoming: any[]; past: any[] }>('/api/v1/patient/appointments'),
 
+  // Get available appointment slots
+  getAvailableSlots: (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest<{
+      slots: Array<{
+        slotId: number;
+        scheduleId: number;
+        date: string;
+        startTime: string;
+        endTime: string;
+        appointmentType: {
+          id: number;
+          name: string;
+          duration: number | null;
+        } | null;
+      }>;
+      practiceId: number;
+    }>(`/api/v1/patient/appointments/available-slots${query}`);
+  },
+
+  // Book an appointment
+  bookAppointment: (slotId: number, notes?: string) =>
+    apiRequest<{
+      id: number;
+      startTime: string;
+      endTime: string;
+      status: string;
+      type: string | null;
+      practice: string;
+      notes: string | null;
+    }>('/api/v1/patient/appointments/book', {
+      method: 'POST',
+      body: JSON.stringify({ slotId, notes }),
+    }),
+
+  // Cancel an appointment
+  cancelAppointment: (appointmentId: number) =>
+    apiRequest<{ message: string }>(`/api/v1/patient/appointments/${appointmentId}`, {
+      method: 'DELETE',
+    }),
+
   // Get payments
   getPayments: () =>
     apiRequest<{ summary: any; payments: any[] }>('/api/v1/patient/payments'),

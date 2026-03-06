@@ -135,6 +135,16 @@ interface PatientState {
   updateProfile: (data: any) => Promise<{ success: boolean; error?: string }>
 
   // =====================================================
+  // APPOINTMENT ACTIONS (PMS-linked patients only)
+  // =====================================================
+  appointments: { upcoming: any[]; past: any[] }
+  availableSlots: any[]
+  loadAppointments: () => Promise<void>
+  loadAvailableSlots: (startDate?: string, endDate?: string) => Promise<void>
+  bookAppointment: (slotId: number, notes?: string) => Promise<{ success: boolean; error?: string }>
+  cancelAppointment: (appointmentId: number) => Promise<{ success: boolean; error?: string }>
+
+  // =====================================================
   // UTILITY FUNCTIONS
   // =====================================================
   getTodayLog: () => { date: string; wearMinutes: number }
@@ -168,6 +178,8 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   notificationSettings: null,
   practiceInfo: null,
   isAuthenticated: false,
+  appointments: { upcoming: [], past: [] },
+  availableSlots: [],
 
   // =====================================================
   // AUTH METHODS
@@ -191,6 +203,8 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       notificationSettings: null,
       practiceInfo: null,
       isAuthenticated: false,
+      appointments: { upcoming: [], past: [] },
+      availableSlots: [],
       loading: false,
       error: null,
     })
@@ -813,6 +827,99 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         return { success: true }
       }
       return { success: false, error: 'Unknown user type' }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  },
+
+  // =====================================================
+  // APPOINTMENT METHODS (PMS-linked patients only)
+  // =====================================================
+
+  loadAppointments: async () => {
+    const { userType } = get()
+
+    try {
+      if (userType === 'linked') {
+        const response = await linkedPatientApi.getAppointments()
+
+        if (response.error || !response.data) {
+          console.error('Load appointments error:', response.error)
+          return
+        }
+
+        set({ appointments: response.data })
+      }
+    } catch (error) {
+      console.error('Load appointments error:', error)
+    }
+  },
+
+  loadAvailableSlots: async (startDate?: string, endDate?: string) => {
+    const { userType } = get()
+
+    try {
+      if (userType === 'linked') {
+        const response = await linkedPatientApi.getAvailableSlots(startDate, endDate)
+
+        if (response.error || !response.data) {
+          console.error('Load available slots error:', response.error)
+          set({ availableSlots: [] })
+          return
+        }
+
+        set({ availableSlots: response.data.slots })
+      }
+    } catch (error) {
+      console.error('Load available slots error:', error)
+      set({ availableSlots: [] })
+    }
+  },
+
+  bookAppointment: async (slotId: number, notes?: string) => {
+    const { userType } = get()
+
+    try {
+      if (userType !== 'linked') {
+        return { success: false, error: 'Only PMS-linked patients can book appointments' }
+      }
+
+      const response = await linkedPatientApi.bookAppointment(slotId, notes)
+
+      if (response.error) {
+        return { success: false, error: response.error.message }
+      }
+
+      // Reload appointments and available slots
+      await Promise.all([
+        get().loadAppointments(),
+        get().loadAvailableSlots(),
+      ])
+
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  },
+
+  cancelAppointment: async (appointmentId: number) => {
+    const { userType } = get()
+
+    try {
+      if (userType !== 'linked') {
+        return { success: false, error: 'Only PMS-linked patients can cancel appointments' }
+      }
+
+      const response = await linkedPatientApi.cancelAppointment(appointmentId)
+
+      if (response.error) {
+        return { success: false, error: response.error.message }
+      }
+
+      // Reload appointments
+      await get().loadAppointments()
+
+      return { success: true }
     } catch (error) {
       return { success: false, error: (error as Error).message }
     }

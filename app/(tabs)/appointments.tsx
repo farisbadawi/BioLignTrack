@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, TextInput, RefreshControl } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, TextInput, RefreshControl, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Calendar, Clock, MapPin, User, Phone, Settings, ExternalLink, Link, CheckCircle } from 'lucide-react-native';
+import { Calendar, Clock, MapPin, User, Phone, Settings, ExternalLink, Link, CheckCircle, X, Plus } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { Card } from '@/components/Card';
 import { useTheme } from '@/contexts/ThemeContext';
 import { router } from 'expo-router';
+import { Button } from '@/components/Button';
+import { useCustomAlert } from '@/components/CustomAlert';
 
 // Office hours types and helpers
 interface DaySchedule {
@@ -71,25 +73,133 @@ interface AppointmentData {
 }
 
 export default function AppointmentsScreen() {
-  const { userType, assignedDoctor, practiceInfo, savePracticeInfo, loadAssignedDoctor } = usePatientStore();
+  const {
+    userType,
+    assignedDoctor,
+    practiceInfo,
+    savePracticeInfo,
+    loadAssignedDoctor,
+    appointments: pmsAppointments,
+    availableSlots,
+    loadAppointments,
+    loadAvailableSlots,
+    bookAppointment,
+    cancelAppointment,
+  } = usePatientStore();
   const { colors } = useTheme();
+  const { showAlert, AlertComponent } = useCustomAlert();
   const [calendlyInput, setCalendlyInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<any>(null);
+  const [bookingNotes, setBookingNotes] = useState('');
+  const [isBooking, setIsBooking] = useState(false);
 
-  // Appointments are not supported in standalone mode - would need PMS integration
-  const appointments: any[] = [];
+  // Load appointments for PMS-linked patients
+  useEffect(() => {
+    if (userType === 'linked') {
+      loadAppointments();
+    }
+  }, [userType]);
+
+  // Appointments - use PMS appointments for linked patients, empty for standalone
+  const appointments: any[] = userType === 'linked' ? pmsAppointments.upcoming : [];
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await loadAssignedDoctor();
+      if (userType === 'linked') {
+        await loadAppointments();
+      } else {
+        await loadAssignedDoctor();
+      }
     } catch (error) {
       console.error('Failed to refresh:', error);
     } finally {
       setRefreshing(false);
     }
   };
+
+  const handleOpenBookingModal = async () => {
+    setLoadingSlots(true);
+    setShowBookingModal(true);
+    await loadAvailableSlots();
+    setLoadingSlots(false);
+  };
+
+  const handleSelectSlot = (slot: any) => {
+    setSelectedSlot(slot);
+  };
+
+  const handleBookAppointment = async () => {
+    if (!selectedSlot) return;
+
+    setIsBooking(true);
+    const result = await bookAppointment(selectedSlot.slotId, bookingNotes || undefined);
+    setIsBooking(false);
+
+    if (result.success) {
+      showAlert({
+        title: 'Success',
+        message: 'Your appointment has been booked!',
+        type: 'success',
+      });
+      setShowBookingModal(false);
+      setSelectedSlot(null);
+      setBookingNotes('');
+    } else {
+      showAlert({
+        title: 'Error',
+        message: result.error || 'Failed to book appointment',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleCancelAppointment = async (appointmentId: number) => {
+    showAlert({
+      title: 'Cancel Appointment',
+      message: 'Are you sure you want to cancel this appointment?',
+      type: 'warning',
+      buttons: [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            const result = await cancelAppointment(appointmentId);
+            if (result.success) {
+              showAlert({
+                title: 'Cancelled',
+                message: 'Your appointment has been cancelled.',
+                type: 'success',
+              });
+            } else {
+              showAlert({
+                title: 'Error',
+                message: result.error || 'Failed to cancel appointment',
+                type: 'error',
+              });
+            }
+          },
+        },
+      ],
+    });
+  };
+
+  // Group available slots by date
+  const groupedSlots = availableSlots.reduce((acc: Record<string, any[]>, slot) => {
+    const dateStr = new Date(slot.date).toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+    if (!acc[dateStr]) acc[dateStr] = [];
+    acc[dateStr].push(slot);
+    return acc;
+  }, {});
 
   // Get doctor's practice info (for patients) - use camelCase from API
   const practicePhone = assignedDoctor?.practicePhone || null;
@@ -98,9 +208,13 @@ export default function AppointmentsScreen() {
   const calendlyUrl = assignedDoctor?.calendlyUrl || null;
   const officeHours = assignedDoctor?.officeHours || null;
 
-  // Handle scheduling - always go to book-appointment screen (it handles missing Calendly gracefully)
+  // Handle scheduling - PMS patients use built-in booking, standalone uses Calendly
   const handleSchedule = () => {
-    router.push('/book-appointment');
+    if (userType === 'linked') {
+      handleOpenBookingModal();
+    } else {
+      router.push('/book-appointment');
+    }
   };
 
   // Safely handle phone calls with proper error handling
@@ -116,22 +230,18 @@ export default function AppointmentsScreen() {
         await Linking.openURL(telUrl);
       } else {
         // Phone calls not supported (e.g., simulator) - show the number to copy
-        Alert.alert(
-          'Call Office',
-          `Phone: ${practicePhone}`,
-          [
-            { text: 'OK', style: 'cancel' },
-          ]
-        );
+        showAlert({
+          title: 'Call Office',
+          message: `Phone: ${practicePhone}`,
+          type: 'info',
+        });
       }
     } catch (error) {
-      Alert.alert(
-        'Call Office',
-        `Phone: ${practicePhone}`,
-        [
-          { text: 'OK', style: 'cancel' },
-        ]
-      );
+      showAlert({
+        title: 'Call Office',
+        message: `Phone: ${practicePhone}`,
+        type: 'info',
+      });
     }
   };
 
@@ -145,32 +255,53 @@ export default function AppointmentsScreen() {
 
     if (result.success) {
       setCalendlyInput('');
-      Alert.alert('Success', 'Calendly URL saved! Your patients can now book appointments with you.');
+      showAlert({
+        title: 'Success',
+        message: 'Calendly URL saved! Your patients can now book appointments with you.',
+        type: 'success',
+      });
     } else {
-      Alert.alert('Error', result.error || 'Failed to save Calendly URL');
+      showAlert({
+        title: 'Error',
+        message: result.error || 'Failed to save Calendly URL',
+        type: 'error',
+      });
     }
   };
 
-  // Filter and sort appointments
-  const upcomingAppointments = (appointments as unknown as AppointmentData[])
-    .filter((apt) => (apt.status === 'confirmed' || apt.status === 'pending') && new Date(apt.starts_at) > new Date())
-    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
+  // Filter and sort appointments - handle both PMS format (startTime) and legacy format (starts_at)
+  const upcomingAppointments = appointments
+    .filter((apt) => {
+      const status = apt.status?.toLowerCase();
+      const startDate = new Date(apt.startTime || apt.starts_at);
+      return (status === 'scheduled' || status === 'confirmed' || status === 'pending') && startDate > new Date();
+    })
+    .sort((a, b) => {
+      const aTime = new Date(a.startTime || a.starts_at).getTime();
+      const bTime = new Date(b.startTime || b.starts_at).getTime();
+      return aTime - bTime;
+    });
 
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
+    // Display stored date as-is (no timezone conversion)
+    const options: Intl.DateTimeFormatOptions = {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
       day: 'numeric',
-    });
+      timeZone: 'UTC',
+    };
+    return date.toLocaleDateString('en-US', options);
   };
 
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
+    // Display stored time as-is (no timezone conversion)
+    // Times are stored as UTC but represent clinic local time
+    const hours = date.getUTCHours();
+    const minutes = date.getUTCMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const h12 = hours % 12 || 12;
+    return minutes === 0 ? `${h12} ${ampm}` : `${h12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
   };
 
   const getDaysUntil = (date: Date) => {
@@ -183,66 +314,80 @@ export default function AppointmentsScreen() {
     return `In ${diffDays} days`;
   };
 
-  const AppointmentCard = ({ appointment }: { appointment: AppointmentData }) => (
-    <Card style={styles.appointmentCard}>
-      <View style={styles.appointmentHeader}>
-        <View style={styles.dateInfo}>
-          <Text style={[styles.appointmentDate, { color: colors.textPrimary }]}>
-            {formatDate(new Date(appointment.starts_at))}
-          </Text>
-          <Text style={[styles.daysUntil, { color: colors.primary }]}>
-            {getDaysUntil(new Date(appointment.starts_at))}
-          </Text>
-        </View>
-        <View style={styles.timeInfo}>
-          <Clock size={16} color={colors.primary} />
-          <Text style={[styles.appointmentTime, { color: colors.primary }]}>
-            {formatTime(new Date(appointment.starts_at))}
-          </Text>
-        </View>
-      </View>
+  const AppointmentCard = ({ appointment }: { appointment: any }) => {
+    // Handle both PMS format (startTime/endTime) and legacy format (starts_at/ends_at)
+    const startDate = new Date(appointment.startTime || appointment.starts_at);
+    const title = appointment.type || appointment.title || 'Appointment';
+    const practice = appointment.practice || appointment.location;
+    const isPmsAppointment = !!appointment.startTime;
 
-      <View style={styles.appointmentDetails}>
-        <View style={styles.detailRow}>
-          <User size={16} color={colors.textSecondary} />
-          <Text style={[styles.detailText, { color: colors.textSecondary }]}>{appointment.title}</Text>
-        </View>
-
-        {appointment.provider && (
-          <View style={styles.detailRow}>
-            <User size={16} color={colors.textSecondary} />
-            <Text style={[styles.detailText, { color: colors.textSecondary }]}>{appointment.provider}</Text>
-          </View>
-        )}
-
-        {appointment.location && (
-          <TouchableOpacity style={styles.detailRow} onPress={() => {
-            const encodedLocation = encodeURIComponent(appointment.location!);
-            Linking.openURL(`https://maps.google.com/?q=${encodedLocation}`);
-          }}>
-            <MapPin size={16} color={colors.textSecondary} />
-            <Text style={[styles.detailText, styles.locationText, { color: colors.primary }]}>
-              {appointment.location}
+    return (
+      <Card style={styles.appointmentCard}>
+        <View style={styles.appointmentHeader}>
+          <View style={styles.dateInfo}>
+            <Text style={[styles.appointmentDate, { color: colors.textPrimary }]}>
+              {formatDate(startDate)}
             </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+            <Text style={[styles.daysUntil, { color: colors.primary }]}>
+              {getDaysUntil(startDate)}
+            </Text>
+          </View>
+          <View style={styles.timeInfo}>
+            <Clock size={16} color={colors.primary} />
+            <Text style={[styles.appointmentTime, { color: colors.primary }]}>
+              {formatTime(startDate)}
+            </Text>
+          </View>
+        </View>
 
-      <View style={[styles.appointmentActions, { borderTopColor: colors.border }]}>
-        {practicePhone && (
-          <TouchableOpacity style={styles.actionButton} onPress={handleCallOffice}>
-            <Phone size={16} color={colors.primary} />
-            <Text style={[styles.actionText, { color: colors.primary }]}>Call Office</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.appointmentDetails}>
+          <View style={styles.detailRow}>
+            <Calendar size={16} color={colors.textSecondary} />
+            <Text style={[styles.detailText, { color: colors.textSecondary }]}>{title}</Text>
+          </View>
 
-        <TouchableOpacity style={styles.actionButton} onPress={handleSchedule}>
-          <Calendar size={16} color={colors.primary} />
-          <Text style={[styles.actionText, { color: colors.primary }]}>Reschedule</Text>
-        </TouchableOpacity>
-      </View>
-    </Card>
-  );
+          {practice && (
+            <View style={styles.detailRow}>
+              <MapPin size={16} color={colors.textSecondary} />
+              <Text style={[styles.detailText, { color: colors.textSecondary }]}>{practice}</Text>
+            </View>
+          )}
+
+          {appointment.notes && (
+            <View style={styles.detailRow}>
+              <User size={16} color={colors.textSecondary} />
+              <Text style={[styles.detailText, { color: colors.textSecondary }]}>{appointment.notes}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={[styles.appointmentActions, { borderTopColor: colors.border }]}>
+          {isPmsAppointment && userType === 'linked' && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => handleCancelAppointment(appointment.id)}
+            >
+              <X size={16} color={colors.error} />
+              <Text style={[styles.actionText, { color: colors.error }]}>Cancel</Text>
+            </TouchableOpacity>
+          )}
+          {practicePhone && (
+            <TouchableOpacity style={styles.actionButton} onPress={handleCallOffice}>
+              <Phone size={16} color={colors.primary} />
+              <Text style={[styles.actionText, { color: colors.primary }]}>Call Office</Text>
+            </TouchableOpacity>
+          )}
+
+          {!isPmsAppointment && (
+            <TouchableOpacity style={styles.actionButton} onPress={handleSchedule}>
+              <Calendar size={16} color={colors.primary} />
+              <Text style={[styles.actionText, { color: colors.primary }]}>Reschedule</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </Card>
+    );
+  };
 
   const getPageTitle = () => {
     return userType === 'standalone_doctor' ? 'Patient Appointments' : 'Appointments';
@@ -261,6 +406,7 @@ export default function AppointmentsScreen() {
 
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
+        <AlertComponent />
         <ScrollView style={[styles.scrollView, { backgroundColor: colors.surface }]} showsVerticalScrollIndicator={false}>
           {/* Header */}
           <View style={styles.header}>
@@ -371,6 +517,7 @@ export default function AppointmentsScreen() {
   // Patient view
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]}>
+      <AlertComponent />
       <ScrollView
         style={[styles.scrollView, { backgroundColor: colors.surface }]}
         showsVerticalScrollIndicator={false}
@@ -390,40 +537,57 @@ export default function AppointmentsScreen() {
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{getSubtitle()}</Text>
         </View>
 
-        {/* Next Appointment Highlight */}
-        {upcomingAppointments.length > 0 && (
-          <Card style={[styles.nextAppointmentCard, { backgroundColor: colors.primary }]}>
-            <View style={styles.nextAppointmentHeader}>
-              <Text style={[styles.nextAppointmentTitle, { color: colors.background }]}>Next Appointment</Text>
-              <View style={styles.reminderBadge}>
-                <Text style={[styles.reminderText, { color: colors.background }]}>Reminder Set</Text>
-              </View>
-            </View>
-
-            <View style={styles.nextAppointmentContent}>
-              <View style={styles.nextAppointmentDate}>
-                <Text style={[styles.nextAppointmentDay, { color: colors.background }]}>
-                  {new Date(upcomingAppointments[0].starts_at).getDate()}
-                </Text>
-                <Text style={[styles.nextAppointmentMonth, { color: colors.background }]}>
-                  {new Date(upcomingAppointments[0].starts_at).toLocaleDateString('en-US', { month: 'short' })}
-                </Text>
-              </View>
-
-              <View style={styles.nextAppointmentInfo}>
-                <Text style={[styles.nextAppointmentPurpose, { color: colors.background }]}>
-                  {upcomingAppointments[0].title}
-                </Text>
-                <Text style={[styles.nextAppointmentTime, { color: colors.background }]}>
-                  {formatTime(new Date(upcomingAppointments[0].starts_at))}
-                </Text>
-                <Text style={[styles.nextAppointmentDays, { color: colors.background }]}>
-                  {getDaysUntil(new Date(upcomingAppointments[0].starts_at))}
-                </Text>
-              </View>
-            </View>
-          </Card>
+        {/* Book Appointment Button for PMS-linked patients */}
+        {userType === 'linked' && (
+          <TouchableOpacity
+            style={[styles.bookAppointmentButton, { backgroundColor: colors.primary }]}
+            onPress={handleOpenBookingModal}
+          >
+            <Plus size={20} color={colors.background} />
+            <Text style={[styles.bookAppointmentText, { color: colors.background }]}>Book New Appointment</Text>
+          </TouchableOpacity>
         )}
+
+        {/* Next Appointment Highlight */}
+        {upcomingAppointments.length > 0 && (() => {
+          const nextAppt = upcomingAppointments[0];
+          const nextStartDate = new Date(nextAppt.startTime || nextAppt.starts_at);
+          const nextTitle = nextAppt.type || nextAppt.title || 'Appointment';
+
+          return (
+            <Card style={[styles.nextAppointmentCard, { backgroundColor: colors.primary }]}>
+              <View style={styles.nextAppointmentHeader}>
+                <Text style={[styles.nextAppointmentTitle, { color: colors.background }]}>Next Appointment</Text>
+                <View style={styles.reminderBadge}>
+                  <Text style={[styles.reminderText, { color: colors.background }]}>Scheduled</Text>
+                </View>
+              </View>
+
+              <View style={styles.nextAppointmentContent}>
+                <View style={styles.nextAppointmentDate}>
+                  <Text style={[styles.nextAppointmentDay, { color: colors.background }]}>
+                    {nextStartDate.getDate()}
+                  </Text>
+                  <Text style={[styles.nextAppointmentMonth, { color: colors.background }]}>
+                    {nextStartDate.toLocaleDateString('en-US', { month: 'short' })}
+                  </Text>
+                </View>
+
+                <View style={styles.nextAppointmentInfo}>
+                  <Text style={[styles.nextAppointmentPurpose, { color: colors.background }]}>
+                    {nextTitle}
+                  </Text>
+                  <Text style={[styles.nextAppointmentTime, { color: colors.background }]}>
+                    {formatTime(nextStartDate)}
+                  </Text>
+                  <Text style={[styles.nextAppointmentDays, { color: colors.background }]}>
+                    {getDaysUntil(nextStartDate)}
+                  </Text>
+                </View>
+              </View>
+            </Card>
+          );
+        })()}
 
         {/* All Upcoming Appointments */}
         <View style={styles.appointmentsList}>
@@ -559,6 +723,192 @@ export default function AppointmentsScreen() {
 
         <View style={{ height: Spacing.xl }} />
       </ScrollView>
+
+      {/* Booking Modal for PMS-linked patients */}
+      <Modal
+        visible={showBookingModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowBookingModal(false)}
+      >
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Book Appointment</Text>
+            <TouchableOpacity
+              style={[styles.modalCloseButton, { backgroundColor: colors.surface }]}
+              onPress={() => {
+                setShowBookingModal(false);
+                setSelectedSlot(null);
+                setBookingNotes('');
+              }}
+            >
+              <X size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          {loadingSlots ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                Loading available slots...
+              </Text>
+            </View>
+          ) : availableSlots.length === 0 ? (
+            <View style={styles.noSlotsContainer}>
+              <Calendar size={48} color={colors.textSecondary} />
+              <Text style={[styles.noSlotsTitle, { color: colors.textPrimary }]}>
+                No Available Slots
+              </Text>
+              <Text style={[styles.noSlotsText, { color: colors.textSecondary }]}>
+                There are no appointment slots available in the next 30 days.
+                Please contact your clinic directly.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.slotsScrollView}>
+              {selectedSlot ? (
+                <View style={styles.confirmationContainer}>
+                  <Text style={[styles.confirmationTitle, { color: colors.textPrimary }]}>
+                    Confirm Your Appointment
+                  </Text>
+
+                  <Card style={styles.selectedSlotCard}>
+                    <View style={styles.selectedSlotHeader}>
+                      <Calendar size={20} color={colors.primary} />
+                      <Text style={[styles.selectedSlotDate, { color: colors.textPrimary }]}>
+                        {new Date(selectedSlot.date).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          month: 'long',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+                    <View style={styles.selectedSlotTime}>
+                      <Clock size={20} color={colors.primary} />
+                      <Text style={[styles.selectedSlotTimeText, { color: colors.textPrimary }]}>
+                        {formatTime12h(selectedSlot.startTime)} - {formatTime12h(selectedSlot.endTime)}
+                      </Text>
+                    </View>
+                    {selectedSlot.appointmentType && (
+                      <View style={[styles.confirmTypeBadge, { backgroundColor: colors.primary + '15' }]}>
+                        <Text style={[styles.confirmTypeText, { color: colors.primary }]}>
+                          {selectedSlot.appointmentType.name}
+                        </Text>
+                      </View>
+                    )}
+                  </Card>
+
+                  <View style={styles.notesContainer}>
+                    <Text style={[styles.notesLabel, { color: colors.textPrimary }]}>
+                      Notes (optional)
+                    </Text>
+                    <TextInput
+                      style={[styles.notesInput, {
+                        borderColor: colors.border,
+                        color: colors.textPrimary,
+                        backgroundColor: colors.surface,
+                      }]}
+                      placeholder="Add any notes for your appointment..."
+                      placeholderTextColor={colors.textSecondary}
+                      value={bookingNotes}
+                      onChangeText={setBookingNotes}
+                      multiline
+                      numberOfLines={3}
+                    />
+                  </View>
+
+                  <View style={styles.confirmationButtons}>
+                    <TouchableOpacity
+                      style={[styles.backButton, { borderColor: colors.border }]}
+                      onPress={() => setSelectedSlot(null)}
+                    >
+                      <Text style={[styles.backButtonText, { color: colors.textPrimary }]}>
+                        Back
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.confirmButton, {
+                        backgroundColor: colors.primary,
+                        opacity: isBooking ? 0.6 : 1,
+                      }]}
+                      onPress={handleBookAppointment}
+                      disabled={isBooking}
+                    >
+                      {isBooking ? (
+                        <ActivityIndicator size="small" color={colors.background} />
+                      ) : (
+                        <Text style={[styles.confirmButtonText, { color: colors.background }]}>
+                          Confirm Booking
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  {Object.entries(groupedSlots).map(([dateStr, slots], dateIndex) => {
+                    // Group slots by appointment type within each date
+                    const slotsByType = (slots as any[]).reduce((acc: Record<string, any[]>, slot) => {
+                      const typeName = slot.appointmentType?.name || 'General';
+                      if (!acc[typeName]) acc[typeName] = [];
+                      acc[typeName].push(slot);
+                      return acc;
+                    }, {});
+
+                    return (
+                      <View key={dateStr} style={styles.dateGroup}>
+                        {/* Date Header */}
+                        <View style={[styles.dateHeader, { backgroundColor: colors.primary + '10' }]}>
+                          <View style={styles.dateHeaderLeft}>
+                            <Calendar size={18} color={colors.primary} />
+                            <Text style={[styles.dateGroupTitle, { color: colors.textPrimary }]}>
+                              {dateStr}
+                            </Text>
+                          </View>
+                          <Text style={[styles.slotCount, { color: colors.textSecondary }]}>
+                            {(slots as any[]).length} slots
+                          </Text>
+                        </View>
+
+                        {/* Slots grouped by type */}
+                        {Object.entries(slotsByType).map(([typeName, typeSlots]) => (
+                          <View key={typeName} style={styles.typeSection}>
+                            <View style={styles.typeLabelRow}>
+                              <View style={[styles.typeBadge, { backgroundColor: colors.primary + '15' }]}>
+                                <Text style={[styles.typeLabel, { color: colors.primary }]}>
+                                  {typeName}
+                                </Text>
+                              </View>
+                            </View>
+                            <View style={styles.slotsGrid}>
+                              {(typeSlots as any[]).map((slot) => (
+                                <TouchableOpacity
+                                  key={slot.slotId}
+                                  style={[styles.slotButton, {
+                                    backgroundColor: colors.surface,
+                                    borderColor: colors.border,
+                                  }]}
+                                  onPress={() => handleSelectSlot(slot)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={[styles.slotTime, { color: colors.textPrimary }]}>
+                                    {formatTime12h(slot.startTime)}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })}
+                  <View style={{ height: Spacing.xl }} />
+                </>
+              )}
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -879,5 +1229,232 @@ const styles = StyleSheet.create({
   },
   officeHoursTime: {
     fontSize: 14,
+  },
+  // Book Appointment Button
+  bookAppointmentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.lg,
+  },
+  bookAppointmentText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Booking Modal styles
+  modalContainer: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  noSlotsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
+  },
+  noSlotsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  noSlotsText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  slotsScrollView: {
+    flex: 1,
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+  },
+  selectSlotTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: Spacing.lg,
+    paddingHorizontal: Spacing.xs,
+  },
+  dateGroup: {
+    marginBottom: Spacing.lg,
+  },
+  dateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  dateHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  dateGroupTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  slotCount: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  typeSection: {
+    marginBottom: Spacing.md,
+  },
+  typeLabelRow: {
+    marginBottom: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
+  },
+  typeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+  },
+  typeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  slotsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  slotButton: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1.5,
+    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slotTime: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  slotType: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  // Confirmation styles
+  confirmationContainer: {
+    paddingBottom: Spacing.xl,
+  },
+  confirmationTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: Spacing.lg,
+  },
+  selectedSlotCard: {
+    marginBottom: Spacing.lg,
+  },
+  selectedSlotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  selectedSlotDate: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  selectedSlotTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  selectedSlotTimeText: {
+    fontSize: 16,
+  },
+  selectedSlotType: {
+    fontSize: 14,
+    marginTop: Spacing.xs,
+  },
+  confirmTypeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+  },
+  confirmTypeText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  notesContainer: {
+    marginBottom: Spacing.lg,
+  },
+  notesLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: Spacing.sm,
+  },
+  notesInput: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  backButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 2,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
