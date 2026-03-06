@@ -79,7 +79,32 @@ export default function AuthScreen() {
         return
       }
 
-      // Register as patient
+      // If patient entered a code, try PMS link first (before registering as standalone)
+      if (doctorCode.trim()) {
+        const joinResult = await joinDoctorByCode(doctorCode.trim())
+        if (joinResult.success) {
+          const message = joinResult.type === 'pms'
+            ? 'Account linked to your clinic!'
+            : 'Account created and linked to your doctor!'
+          showAlert({
+            title: 'Success!',
+            message,
+            type: 'success',
+            buttons: [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
+          })
+          return
+        }
+        // If code failed, show error and don't continue
+        showAlert({
+          title: 'Invalid Code',
+          message: joinResult.error || 'The code you entered is invalid. Please check and try again.',
+          type: 'error',
+        })
+        setLoading(false)
+        return
+      }
+
+      // No code entered - register as standalone patient
       const result = await registerStandalonePatient({
         name: user?.name,
         email: user?.email,
@@ -95,23 +120,9 @@ export default function AuthScreen() {
         return
       }
 
-      // If patient entered a doctor code, join that doctor
-      if (doctorCode.trim()) {
-        const joinResult = await joinDoctorByCode(doctorCode.trim())
-        if (!joinResult.success) {
-          showAlert({
-            title: 'Account Created',
-            message: `Your account was created but we couldn't link to the doctor: ${joinResult.error}. You can add your doctor later in Settings.`,
-            type: 'warning',
-            buttons: [{ text: 'OK', onPress: () => router.replace('/onboarding') }]
-          })
-          return
-        }
-      }
-
       showAlert({
         title: 'Success!',
-        message: doctorCode.trim() ? 'Account created and linked to your doctor!' : 'Account created successfully!',
+        message: 'Account created successfully!',
         type: 'success',
         buttons: [{ text: 'OK', onPress: () => router.replace('/onboarding') }]
       })
@@ -308,10 +319,10 @@ export default function AuthScreen() {
         </View>
 
         <View style={styles.form}>
-          {/* Doctor code input for patients */}
+          {/* Invite/Doctor code input for patients */}
           {role === 'patient' && (
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: colors.textPrimary }]}>Doctor Code (Optional)</Text>
+              <Text style={[styles.label, { color: colors.textPrimary }]}>Invite Code (Optional)</Text>
               <View style={styles.codeInputWrapper}>
                 <CodeInput
                   value={doctorCode}
@@ -320,7 +331,7 @@ export default function AuthScreen() {
                 />
               </View>
               <Text style={[styles.helpText, { color: colors.textSecondary, textAlign: 'center' }]}>
-                Ask your orthodontist for their code to link your account
+                Enter the code from your clinic's email or your doctor
               </Text>
             </View>
           )}
