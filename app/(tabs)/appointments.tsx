@@ -195,6 +195,7 @@ export default function AppointmentsScreen() {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
+      timeZone: 'UTC',
     });
     if (!acc[dateStr]) acc[dateStr] = [];
     acc[dateStr].push(slot);
@@ -566,10 +567,10 @@ export default function AppointmentsScreen() {
               <View style={styles.nextAppointmentContent}>
                 <View style={styles.nextAppointmentDate}>
                   <Text style={[styles.nextAppointmentDay, { color: colors.background }]}>
-                    {nextStartDate.getDate()}
+                    {nextStartDate.getUTCDate()}
                   </Text>
                   <Text style={[styles.nextAppointmentMonth, { color: colors.background }]}>
-                    {nextStartDate.toLocaleDateString('en-US', { month: 'short' })}
+                    {nextStartDate.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })}
                   </Text>
                 </View>
 
@@ -780,6 +781,7 @@ export default function AppointmentsScreen() {
                           weekday: 'long',
                           month: 'long',
                           day: 'numeric',
+                          timeZone: 'UTC',
                         })}
                       </Text>
                     </View>
