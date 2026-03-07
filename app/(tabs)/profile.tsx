@@ -559,12 +559,14 @@ export default function ProfileScreen() {
         {/* Practice Section - For PMS-linked patients */}
         {userType === 'linked' && linkedPracticeName && (
           <ProfileSection title="Your Practice">
-            <View style={styles.linkedDoctorInfo}>
-              <View style={styles.linkedDoctorAvatar}>
-                <Building2 size={24} color={Colors.background} />
-              </View>
-              <View style={styles.linkedDoctorDetails}>
-                <Text style={[styles.linkedDoctorName, { color: themeColors.textPrimary }]}>{linkedPracticeName}</Text>
+            <View style={styles.doctorLinkSection}>
+              <View style={styles.linkedDoctorInfo}>
+                <View style={styles.linkedDoctorAvatar}>
+                  <Building2 size={24} color={Colors.background} />
+                </View>
+                <View style={styles.linkedDoctorDetails}>
+                  <Text style={[styles.linkedDoctorName, { color: themeColors.textPrimary }]}>{linkedPracticeName}</Text>
+                </View>
               </View>
             </View>
           </ProfileSection>
