@@ -149,6 +149,7 @@ export default function ProfileScreen() {
     userType,
     signOut,
     assignedDoctor,
+    linkedPracticeName,
     joinDoctorByCode,
     getDoctorCode,
     getComplianceStats,
@@ -415,6 +416,8 @@ export default function ProfileScreen() {
       return `Aligner ${patient.currentTray} of ${patient.totalTrays}`;
     } else if (userType === 'standalone_doctor') {
       return 'Managing patient treatments';
+    } else if (userType === 'linked' && linkedPracticeName) {
+      return linkedPracticeName;
     }
     return 'Account active';
   };

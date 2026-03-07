@@ -75,6 +75,9 @@ interface PatientState {
   assignedPatients: Patient[]
   invitations: any[]
 
+  // Linked patient practice
+  linkedPracticeName: string | null
+
   // Settings
   userSettings: any | null
   notificationSettings: any | null
@@ -174,6 +177,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   assignedDoctor: null,
   assignedPatients: [],
   invitations: [],
+  linkedPracticeName: null,
   userSettings: null,
   notificationSettings: null,
   practiceInfo: null,
@@ -199,6 +203,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       assignedDoctor: null,
       assignedPatients: [],
       invitations: [],
+      linkedPracticeName: null,
       userSettings: null,
       notificationSettings: null,
       practiceInfo: null,
@@ -371,6 +376,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
             currentTray: data.treatment?.currentTray || 1,
             totalTrays: data.treatment?.totalTrays || 24,
           },
+          linkedPracticeName: data.practice?.name || null,
         })
       }
     } catch (error) {
@@ -868,6 +874,16 @@ export const usePatientStore = create<PatientState>((set, get) => ({
           return
         }
 
+        // Temporary debug logging - remove after fixing missing dates
+        if (response.data._debug) {
+          console.log('=== AVAILABLE SLOTS DEBUG ===')
+          console.log('Practice source:', response.data._debug.practiceSource)
+          console.log('Date range:', response.data._debug.requestedRange)
+          console.log('All schedules in DB:', JSON.stringify(response.data._debug.allSchedulesInRange, null, 2))
+          console.log('Matched (active + unbooked):', JSON.stringify(response.data._debug.matchedSchedules, null, 2))
+          console.log('============================')
+        }
+
         set({ availableSlots: response.data.slots })
       }
     } catch (error) {
@@ -938,26 +954,24 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   getWeeklyProgress: () => {
     const { dailyLogs, todayWearSeconds, patient, currentSession } = get()
     const days: { date: string; hours: number }[] = []
-    const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
+    const now = new Date()
+    const todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
 
     // Calculate current session elapsed time if timer is running
     let currentSessionSeconds = 0
     if (currentSession?.startTime) {
-      currentSessionSeconds = Math.floor((new Date().getTime() - currentSession.startTime.getTime()) / 1000)
+      currentSessionSeconds = Math.floor((now.getTime() - currentSession.startTime.getTime()) / 1000)
     }
 
-    // Get Monday of current week
-    const currentDayOfWeek = today.getDay()
+    // Get Monday of current week (using UTC to avoid timezone-induced duplicate dates)
+    const currentDayOfWeek = now.getUTCDay()
     const daysSinceMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1
-    const monday = new Date(today)
-    monday.setDate(today.getDate() - daysSinceMonday)
+    const mondayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysSinceMonday)
 
     // Generate days Monday through Sunday
     for (let i = 0; i < 7; i++) {
-      const date = new Date(monday)
-      date.setDate(monday.getDate() + i)
-      const dateStr = date.toISOString().split('T')[0]
+      const date = new Date(mondayMs + i * 86400000)
+      const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
 
       const log = dailyLogs.find(l => l.date === dateStr)
       let hours = 0
