@@ -416,8 +416,6 @@ export default function ProfileScreen() {
       return `Aligner ${patient.currentTray} of ${patient.totalTrays}`;
     } else if (userType === 'standalone_doctor') {
       return 'Managing patient treatments';
-    } else if (userType === 'linked' && linkedPracticeName) {
-      return linkedPracticeName;
     }
     return 'Account active';
   };
@@ -557,6 +555,20 @@ export default function ProfileScreen() {
             </>
           )}
         </Card>
+
+        {/* Practice Section - For PMS-linked patients */}
+        {userType === 'linked' && linkedPracticeName && (
+          <ProfileSection title="Your Practice">
+            <View style={styles.linkedDoctorInfo}>
+              <View style={styles.linkedDoctorAvatar}>
+                <Building2 size={24} color={Colors.background} />
+              </View>
+              <View style={styles.linkedDoctorDetails}>
+                <Text style={[styles.linkedDoctorName, { color: themeColors.textPrimary }]}>{linkedPracticeName}</Text>
+              </View>
+            </View>
+          </ProfileSection>
+        )}
 
         {/* Doctor Code Section - For Doctors */}
         {userType === 'standalone_doctor' && (
