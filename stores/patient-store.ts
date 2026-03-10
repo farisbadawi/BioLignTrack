@@ -370,6 +370,9 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
         const hasActiveTreatment = !!data.treatment
 
+        // Normalize date strings from recentWearLogs
+        const normalizeDateStr = (d: string) => typeof d === 'string' && d.length > 10 ? d.split('T')[0] : d
+
         set({
           profile: {
             id: data.patient?.id,
@@ -384,19 +387,21 @@ export const usePatientStore = create<PatientState>((set, get) => ({
             currentTray: data.treatment?.currentTray || 0,
             totalTrays: data.treatment?.totalTrays || 0,
             dailyWearTarget: data.treatment?.dailyWearTarget || 0,
-            startDate: data.treatment?.startDate || undefined,
+            startDate: data.treatment?.startDate ? normalizeDateStr(data.treatment.startDate) : undefined,
             daysPerTray: data.treatment?.daysPerTray || 14,
           },
           hasTreatment: hasActiveTreatment,
           linkedPracticeName: data.practice?.name || null,
+          todayWearMinutes: data.todayWearMinutes || 0,
+          todayWearSeconds: (data.todayWearMinutes || 0) * 60,
+          currentSession: data.activeSession
+            ? { id: data.activeSession.id, startTime: new Date(data.activeSession.startTime) }
+            : null,
         })
 
-        // Load related data for linked patients too
+        // Load full wear logs from dedicated endpoint (more than the 7 from /me)
         if (hasActiveTreatment) {
-          await Promise.all([
-            get().loadDailyLogs(),
-            get().loadTrayChanges(),
-          ])
+          await get().loadDailyLogs()
         }
       }
     } catch (error) {
