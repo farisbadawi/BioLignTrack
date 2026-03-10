@@ -81,7 +81,11 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
     }
 
     setSaving(true);
-    const dateStr = selectedDate.toISOString().split('T')[0];
+    // Use local date to match chart display (not UTC which could be next day)
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     const result = await logHoursForDate(dateStr, hoursNum);
     setSaving(false);
 
