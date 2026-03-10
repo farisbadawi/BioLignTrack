@@ -1037,11 +1037,13 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   },
 
   getComplianceStats: () => {
-    const { dailyLogs, patient, assignedDoctor } = get()
+    const { dailyLogs, patient, assignedDoctor, userType, hasTreatment } = get()
     const targetHours = (patient?.dailyWearTarget || 1320) / 60 // Convert minutes to hours
     const targetSeconds = targetHours * 3600
 
-    if (!assignedDoctor) {
+    // For standalone: need an assigned doctor. For linked: need an active treatment.
+    const hasActiveTreatment = userType === 'linked' ? hasTreatment : !!assignedDoctor
+    if (!hasActiveTreatment) {
       return {
         weeklyAverage: 0,
         monthlyAverage: 0,
