@@ -1056,24 +1056,34 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
+    const treatmentStart = patient?.startDate || todayStr
 
-    // Calculate weekly average
+    // Calculate weekly average (only count days since treatment started, max 7)
     const sevenDaysAgo = new Date(today)
     sevenDaysAgo.setDate(today.getDate() - 6)
     const weekStartDate = sevenDaysAgo.toISOString().split('T')[0]
+    const effectiveWeekStart = treatmentStart > weekStartDate ? treatmentStart : weekStartDate
 
-    const weeklyLogs = dailyLogs.filter(log => log.date >= weekStartDate && log.date <= todayStr)
+    const weeklyLogs = dailyLogs.filter(log => log.date >= effectiveWeekStart && log.date <= todayStr)
     const weeklyTotalSeconds = weeklyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0)
-    const weeklyAverage = weeklyTotalSeconds / 7 / 3600
+    // Days since treatment started within this week (at least 1 to avoid division by zero)
+    const daysSinceTreatmentInWeek = Math.max(1, Math.min(7,
+      Math.floor((today.getTime() - new Date(effectiveWeekStart).getTime()) / (24 * 60 * 60 * 1000)) + 1
+    ))
+    const weeklyAverage = weeklyTotalSeconds / daysSinceTreatmentInWeek / 3600
 
-    // Calculate monthly average
+    // Calculate monthly average (only count days since treatment started, max 30)
     const thirtyDaysAgo = new Date(today)
     thirtyDaysAgo.setDate(today.getDate() - 29)
     const monthStartDate = thirtyDaysAgo.toISOString().split('T')[0]
+    const effectiveMonthStart = treatmentStart > monthStartDate ? treatmentStart : monthStartDate
 
-    const monthlyLogs = dailyLogs.filter(log => log.date >= monthStartDate && log.date <= todayStr)
+    const monthlyLogs = dailyLogs.filter(log => log.date >= effectiveMonthStart && log.date <= todayStr)
     const monthlyTotalSeconds = monthlyLogs.reduce((sum, log) => sum + getLogSeconds(log), 0)
-    const monthlyAverage = monthlyTotalSeconds / 30 / 3600
+    const daysSinceTreatmentInMonth = Math.max(1, Math.min(30,
+      Math.floor((today.getTime() - new Date(effectiveMonthStart).getTime()) / (24 * 60 * 60 * 1000)) + 1
+    ))
+    const monthlyAverage = monthlyTotalSeconds / daysSinceTreatmentInMonth / 3600
 
     // Calculate streak
     const minimumSecondsForDay = targetSeconds * 0.5
