@@ -151,10 +151,10 @@ function PatientListView() {
 
 // Direct Chat Component for Patients
 function DirectChatView() {
-  const { patient, assignedDoctor } = usePatientStore();
+  const { patient, assignedDoctor, userType, linkedPracticeName } = usePatientStore();
   const { colors } = useTheme();
 
-  if (!assignedDoctor) {
+  if (!assignedDoctor && userType !== 'linked') {
     return (
       <View style={[styles.noDoctorContainer, { backgroundColor: colors.surface }]}>
         <User size={64} color={colors.textSecondary} />
@@ -193,10 +193,10 @@ function DirectChatView() {
         </View>
         <View style={styles.doctorInfo}>
           <Text style={[styles.doctorName, { color: colors.textPrimary }]}>
-            {assignedDoctor.name || 'Your Orthodontist'}
+            {assignedDoctor?.name || linkedPracticeName || 'Your Orthodontist'}
           </Text>
           <Text style={[styles.doctorPractice, { color: colors.textSecondary }]}>
-            {assignedDoctor.practiceName || 'Orthodontic Practice'}
+            {assignedDoctor?.practiceName || linkedPracticeName || 'Orthodontic Practice'}
           </Text>
         </View>
       </Card>
@@ -229,7 +229,7 @@ function DirectChatView() {
       <Card style={styles.contactCard}>
         <Text style={[styles.contactTitle, { color: colors.textPrimary }]}>Contact Options</Text>
 
-        {assignedDoctor.practicePhone && (
+        {assignedDoctor?.practicePhone && (
           <View style={styles.contactRow}>
             <AlertCircle size={20} color={colors.primary} />
             <Text style={[styles.contactText, { color: colors.textSecondary }]}>
@@ -238,7 +238,7 @@ function DirectChatView() {
           </View>
         )}
 
-        {assignedDoctor.email && (
+        {assignedDoctor?.email && (
           <View style={styles.contactRow}>
             <Clock size={20} color={colors.primary} />
             <Text style={[styles.contactText, { color: colors.textSecondary }]}>
@@ -247,7 +247,7 @@ function DirectChatView() {
           </View>
         )}
 
-        {!assignedDoctor.practicePhone && !assignedDoctor.email && (
+        {!assignedDoctor?.practicePhone && !assignedDoctor?.email && (
           <Text style={[styles.noContactInfo, { color: colors.textSecondary }]}>
             Contact information not available. Please check with your orthodontist.
           </Text>

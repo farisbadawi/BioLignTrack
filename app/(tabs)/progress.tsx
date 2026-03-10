@@ -13,7 +13,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function ProgressScreen() {
-  const { patient, dailyLogs, trayChanges, assignedDoctor, currentSession, todayWearSeconds, getComplianceStats } = usePatientStore();
+  const { patient, dailyLogs, trayChanges, assignedDoctor, userType, currentSession, todayWearSeconds, getComplianceStats } = usePatientStore();
   const { colors } = useTheme();
   const [, setTick] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, -1 = last week, etc.
@@ -114,7 +114,8 @@ export default function ProgressScreen() {
   if (!patient) return null;
 
   // Check if treatment has started
-  const treatmentStarted = !!assignedDoctor && !!patient.startDate;
+  // Linked (PMS) patients are managed by the practice — treat as started
+  const treatmentStarted = userType === 'linked' || (!!assignedDoctor && !!patient.startDate);
 
   // Get target hours (dailyWearTarget is in minutes)
   const targetHoursPerDay = (patient.dailyWearTarget || 1320) / 60;

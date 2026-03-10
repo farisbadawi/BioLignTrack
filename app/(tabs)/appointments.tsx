@@ -76,6 +76,7 @@ export default function AppointmentsScreen() {
   const {
     userType,
     assignedDoctor,
+    linkedPracticeName,
     practiceInfo,
     savePracticeInfo,
     loadAssignedDoctor,
@@ -205,7 +206,7 @@ export default function AppointmentsScreen() {
   // Get doctor's practice info (for patients) - use camelCase from API
   const practicePhone = assignedDoctor?.practicePhone || null;
   const practiceAddress = assignedDoctor?.practiceAddress || null;
-  const practiceName = assignedDoctor?.practiceName || 'Your Orthodontist';
+  const practiceName = assignedDoctor?.practiceName || linkedPracticeName || 'Your Orthodontist';
   const calendlyUrl = assignedDoctor?.calendlyUrl || null;
   const officeHours = assignedDoctor?.officeHours || null;
 
