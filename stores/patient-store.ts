@@ -75,6 +75,9 @@ interface PatientState {
   assignedPatients: Patient[]
   invitations: any[]
 
+  // Treatment state
+  hasTreatment: boolean
+
   // Linked patient practice
   linkedPracticeName: string | null
 
@@ -177,6 +180,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   assignedDoctor: null,
   assignedPatients: [],
   invitations: [],
+  hasTreatment: false,
   linkedPracticeName: null,
   userSettings: null,
   notificationSettings: null,
@@ -203,6 +207,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       assignedDoctor: null,
       assignedPatients: [],
       invitations: [],
+      hasTreatment: false,
       linkedPracticeName: null,
       userSettings: null,
       notificationSettings: null,
@@ -339,6 +344,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
             dailyWearTarget: data.dailyWearTarget,
             startDate: data.startDate || undefined,
           },
+          hasTreatment: true,
           todayWearMinutes: data.todayWearMinutes || 0,
           todayWearSeconds: (data.todayWearMinutes || 0) * 60,
           currentSession: data.activeSession
@@ -362,6 +368,8 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
         const data = response.data
 
+        const hasActiveTreatment = !!data.treatment
+
         set({
           profile: {
             id: data.patient?.id,
@@ -373,11 +381,23 @@ export const usePatientStore = create<PatientState>((set, get) => ({
             id: data.patient?.id,
             name: `${data.patient?.firstName} ${data.patient?.lastName}`,
             email: data.patient?.email || '',
-            currentTray: data.treatment?.currentTray || 1,
-            totalTrays: data.treatment?.totalTrays || 24,
+            currentTray: data.treatment?.currentTray || 0,
+            totalTrays: data.treatment?.totalTrays || 0,
+            dailyWearTarget: data.treatment?.dailyWearTarget || 0,
+            startDate: data.treatment?.startDate || undefined,
+            daysPerTray: data.treatment?.daysPerTray || 14,
           },
+          hasTreatment: hasActiveTreatment,
           linkedPracticeName: data.practice?.name || null,
         })
+
+        // Load related data for linked patients too
+        if (hasActiveTreatment) {
+          await Promise.all([
+            get().loadDailyLogs(),
+            get().loadTrayChanges(),
+          ])
+        }
       }
     } catch (error) {
       console.error('Load patient data error:', error)
@@ -386,6 +406,13 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
   loadDailyLogs: async () => {
     const { userType } = get()
+
+    // Normalize dates from API (could be ISO datetime) to YYYY-MM-DD
+    const normalizeLogs = (logs: any[]) =>
+      logs.map(l => ({
+        ...l,
+        date: typeof l.date === 'string' && l.date.length > 10 ? l.date.split('T')[0] : l.date,
+      }))
 
     try {
       if (userType === 'standalone_patient') {
@@ -396,7 +423,19 @@ export const usePatientStore = create<PatientState>((set, get) => ({
           return
         }
 
-        set({ dailyLogs: response.data.logs })
+        set({ dailyLogs: normalizeLogs(response.data.logs) })
+      } else if (userType === 'linked') {
+        // Get last 90 days of wear logs
+        const endDate = new Date().toISOString().split('T')[0]
+        const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        const response = await linkedPatientApi.getWearLogs(startDate, endDate)
+
+        if (response.error || !response.data) {
+          console.error('Load daily logs error:', response.error)
+          return
+        }
+
+        set({ dailyLogs: normalizeLogs(response.data.logs) })
       }
     } catch (error) {
       console.error('Load daily logs error:', error)
@@ -1068,30 +1107,55 @@ export const usePatientStore = create<PatientState>((set, get) => ({
   },
 
   logHoursForDate: async (dateStr: string, hours: number) => {
-    // This is a manual log feature - for now just update local state
-    // In a full implementation, this would call an API endpoint
-    const { dailyLogs, patient } = get()
+    const { dailyLogs, patient, userType } = get()
     const minutes = Math.round(hours * 60)
     const seconds = Math.round(hours * 3600)
 
-    const existingIndex = dailyLogs.findIndex(l => l.date === dateStr)
-    const newLog: WearLog = {
-      id: Date.now(),
-      date: dateStr,
-      wearMinutes: minutes,
-      wearSeconds: seconds,
-      targetMinutes: patient?.dailyWearTarget || 1320,
-      trayNumber: patient?.currentTray || 1,
-    }
+    // Call the backend API to persist the wear log
+    try {
+      let response
+      if (userType === 'standalone_patient') {
+        response = await standalonePatientApi.logWearForDate(dateStr, minutes)
+      } else if (userType === 'linked') {
+        response = await linkedPatientApi.logWearForDate(dateStr, minutes)
+      } else {
+        return { success: false, error: 'Unknown user type' }
+      }
 
-    if (existingIndex >= 0) {
-      const updatedLogs = [...dailyLogs]
-      updatedLogs[existingIndex] = newLog
-      set({ dailyLogs: updatedLogs })
-    } else {
-      set({ dailyLogs: [...dailyLogs, newLog] })
-    }
+      if (response.error || !response.data) {
+        console.error('Log wear API error:', response.error)
+        return { success: false, error: response.error?.message || 'Failed to save wear log' }
+      }
 
-    return { success: true }
+      // Update local state with the persisted data
+      const newLog: WearLog = {
+        id: response.data.id,
+        date: dateStr,
+        wearMinutes: minutes,
+        wearSeconds: seconds,
+        targetMinutes: response.data.targetMinutes ?? patient?.dailyWearTarget ?? 1320,
+        trayNumber: response.data.trayNumber ?? patient?.currentTray ?? 1,
+      }
+
+      const existingIndex = dailyLogs.findIndex(l => l.date === dateStr)
+      if (existingIndex >= 0) {
+        const updatedLogs = [...dailyLogs]
+        updatedLogs[existingIndex] = newLog
+        set({ dailyLogs: updatedLogs })
+      } else {
+        set({ dailyLogs: [...dailyLogs, newLog] })
+      }
+
+      // If logging for today, update todayWearMinutes too
+      const todayStr = new Date().toISOString().split('T')[0]
+      if (dateStr === todayStr) {
+        set({ todayWearMinutes: minutes, todayWearSeconds: seconds })
+      }
+
+      return { success: true }
+    } catch (error) {
+      console.error('Log wear error:', error)
+      return { success: false, error: 'Network error' }
+    }
   },
 }))

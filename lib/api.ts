@@ -157,6 +157,16 @@ export const linkedPatientApi = {
     const query = params.toString() ? `?${params.toString()}` : '';
     return apiRequest<{ logs: any[] }>(`/api/v1/patient/wear-logs${query}`);
   },
+
+  // Manually log wear hours for a date
+  logWearForDate: (date: string, wearMinutes: number) =>
+    apiRequest<{ id: number; date: string; wearMinutes: number; targetMinutes: number; trayNumber: number }>(
+      '/api/v1/patient/wear-log',
+      {
+        method: 'POST',
+        body: JSON.stringify({ date, wearMinutes }),
+      }
+    ),
 };
 
 // =====================================================
@@ -271,6 +281,16 @@ export const standalonePatientApi = {
       }>;
     }>(`/api/v1/patient/standalone/wear-logs${query}`);
   },
+
+  // Manually log wear hours for a date
+  logWearForDate: (date: string, wearMinutes: number) =>
+    apiRequest<{ id: number; date: string; wearMinutes: number; wearSeconds: number; targetMinutes: number; trayNumber: number }>(
+      '/api/v1/patient/standalone/wear-log',
+      {
+        method: 'POST',
+        body: JSON.stringify({ date, wearMinutes }),
+      }
+    ),
 
   // Get tray changes
   getTrayChanges: () =>
