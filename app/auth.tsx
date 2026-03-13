@@ -62,11 +62,12 @@ export default function AuthScreen() {
 
       if (existingProfile) {
         // User already exists, go to main app
+        const route = userType === 'standalone_doctor' ? '/(doctor)' : '/(patient)';
         showAlert({
           title: 'Welcome Back!',
           message: 'You are already registered.',
           type: 'success',
-          buttons: [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
+          buttons: [{ text: 'OK', onPress: () => router.replace(route) }]
         })
         return
       }
@@ -90,7 +91,7 @@ export default function AuthScreen() {
             title: 'Success!',
             message,
             type: 'success',
-            buttons: [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
+            buttons: [{ text: 'OK', onPress: () => router.replace('/(patient)') }]
           })
           return
         }

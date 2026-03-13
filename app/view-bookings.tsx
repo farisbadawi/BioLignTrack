@@ -42,7 +42,7 @@ export default function ViewBookingsScreen() {
             style={[styles.setupButton, { backgroundColor: colors.primary }]}
             onPress={() => {
               router.back()
-              router.push('/(tabs)/appointments')
+              router.push('/(doctor)/appointments')
             }}
           >
             <Calendar size={20} color={colors.background} />

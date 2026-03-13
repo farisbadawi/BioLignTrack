@@ -89,16 +89,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       // Navigate based on notification type
       switch (data?.type) {
         case 'wear_reminder':
-          // Go to home/tray tracking
-          router.push('/(tabs)')
+          router.push('/(patient)')
           break
         case 'tray_change':
-          // Go to tray screen
-          router.push('/(tabs)/tray')
+          router.push('/(patient)/tray')
           break
         case 'message':
-          // Go to messages
-          router.push('/(tabs)/messages')
+          router.push('/(patient)/messages')
           break
       }
     })

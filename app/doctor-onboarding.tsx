@@ -52,7 +52,7 @@ export default function DoctorOnboardingScreen() {
       })
 
       if (result.success) {
-        router.replace('/(tabs)')
+        router.replace('/(doctor)')
       } else {
         showAlert({
           title: 'Error',
@@ -80,7 +80,7 @@ export default function DoctorOnboardingScreen() {
         { text: 'Go Back', style: 'cancel' },
         {
           text: 'Skip for Now',
-          onPress: () => router.replace('/(tabs)'),
+          onPress: () => router.replace('/(doctor)'),
         },
       ],
     })

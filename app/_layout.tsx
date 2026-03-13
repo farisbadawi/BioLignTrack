@@ -21,7 +21,7 @@ function RootLayoutNav() {
   const [isReady, setIsReady] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
   const router = useRouter();
-  const { profile, isAuthenticated, initialize, clearAuth } = usePatientStore();
+  const { profile, isAuthenticated, initialize, clearAuth, userType } = usePatientStore();
   const { isLoading: auth0Loading, isAuthenticated: auth0Authenticated, user: auth0User, logout: auth0Logout } = useAuth0();
   const { isDark, colors } = useTheme();
 
@@ -75,8 +75,14 @@ function RootLayoutNav() {
     if (!initialCheckDone) return;
 
     if (isAuthenticated && profile) {
-      console.log('Routing to tabs');
-      router.replace('/(tabs)');
+      const { userType: currentUserType } = usePatientStore.getState();
+      if (currentUserType === 'standalone_doctor') {
+        console.log('Routing to doctor tabs');
+        router.replace('/(doctor)');
+      } else {
+        console.log('Routing to patient tabs');
+        router.replace('/(patient)');
+      }
     } else {
       console.log('Routing to role selection');
       router.replace('/role-selection');
@@ -111,7 +117,8 @@ function RootLayoutNav() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="edit-practice" />
         <Stack.Screen name="book-appointment" />
-        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(patient)" />
+        <Stack.Screen name="(doctor)" />
         <Stack.Screen name="+not-found" />
       </Stack>
     </View>

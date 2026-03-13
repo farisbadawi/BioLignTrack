@@ -83,7 +83,7 @@ export default function OnboardingScreen() {
       await loadPatientData();
 
       // Navigate to the main app
-      router.replace('/(tabs)');
+      router.replace('/(patient)');
     } catch (error) {
       console.error('Onboarding error:', error);
       showAlert({
@@ -97,7 +97,7 @@ export default function OnboardingScreen() {
   };
 
   const handleSkip = () => {
-    router.replace('/(tabs)');
+    router.replace('/(patient)');
   };
 
   return (
