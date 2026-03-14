@@ -2,6 +2,11 @@
 import { create } from 'zustand'
 import { whoami, standalonePatientApi, standaloneDoctorApi, linkedPatientApi } from '@/lib/api'
 
+/** Format a Date as YYYY-MM-DD in the local timezone (avoids UTC off-by-one) */
+function toLocalDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // =====================================================
 // TYPE DEFINITIONS
 // =====================================================
@@ -228,7 +233,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       const response = await whoami()
 
       if (response.error) {
-        console.error('Whoami error:', response.error)
+        if (__DEV__) console.error('Whoami error:', response.error)
         get().clearAuth()
         return
       }
@@ -263,7 +268,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
       set({ loading: false })
     } catch (error) {
-      console.error('Initialize error:', error)
+      if (__DEV__) console.error('Initialize error:', error)
       get().clearAuth()
       set({ error: (error as Error).message, loading: false })
     }
@@ -321,7 +326,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await standalonePatientApi.getMe()
 
         if (response.error || !response.data) {
-          console.error('Load patient data error:', response.error)
+          if (__DEV__) console.error('Load patient data error:', response.error)
           return
         }
 
@@ -362,7 +367,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await linkedPatientApi.getMe()
 
         if (response.error || !response.data) {
-          console.error('Load patient data error:', response.error)
+          if (__DEV__) console.error('Load patient data error:', response.error)
           return
         }
 
@@ -405,7 +410,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         }
       }
     } catch (error) {
-      console.error('Load patient data error:', error)
+      if (__DEV__) console.error('Load patient data error:', error)
     }
   },
 
@@ -424,7 +429,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await standalonePatientApi.getWearLogs(90)
 
         if (response.error || !response.data) {
-          console.error('Load daily logs error:', response.error)
+          if (__DEV__) console.error('Load daily logs error:', response.error)
           return
         }
 
@@ -436,14 +441,14 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await linkedPatientApi.getWearLogs(startDate, endDate)
 
         if (response.error || !response.data) {
-          console.error('Load daily logs error:', response.error)
+          if (__DEV__) console.error('Load daily logs error:', response.error)
           return
         }
 
         set({ dailyLogs: normalizeLogs(response.data.logs) })
       }
     } catch (error) {
-      console.error('Load daily logs error:', error)
+      if (__DEV__) console.error('Load daily logs error:', error)
     }
   },
 
@@ -455,14 +460,14 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await standalonePatientApi.getTrayChanges()
 
         if (response.error || !response.data) {
-          console.error('Load tray changes error:', response.error)
+          if (__DEV__) console.error('Load tray changes error:', response.error)
           return
         }
 
         set({ trayChanges: response.data.trayChanges })
       }
     } catch (error) {
-      console.error('Load tray changes error:', error)
+      if (__DEV__) console.error('Load tray changes error:', error)
     }
   },
 
@@ -484,7 +489,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       }
 
       if (response.error || !response.data) {
-        console.error('Start session error:', response.error)
+        if (__DEV__) console.error('Start session error:', response.error)
         return
       }
 
@@ -495,7 +500,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         },
       })
     } catch (error) {
-      console.error('Start session error:', error)
+      if (__DEV__) console.error('Start session error:', error)
     }
   },
 
@@ -514,7 +519,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       }
 
       if (response.error || !response.data) {
-        console.error('Stop session error:', response.error)
+        if (__DEV__) console.error('Stop session error:', response.error)
         return
       }
 
@@ -530,7 +535,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       // Reload logs
       await get().loadDailyLogs()
     } catch (error) {
-      console.error('Stop session error:', error)
+      if (__DEV__) console.error('Stop session error:', error)
     }
   },
 
@@ -558,21 +563,23 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       }
 
       if (response.error || !response.data) {
-        console.error('Log tray change error:', response.error)
+        if (__DEV__) console.error('Log tray change error:', response.error)
         return
       }
 
       // Update patient's current tray
-      set((state) => ({
-        patient: state.patient
-          ? { ...state.patient, currentTray: response.data!.newCurrentTray }
-          : null,
-      }))
+      if (response.data) {
+        set((state) => ({
+          patient: state.patient
+            ? { ...state.patient, currentTray: response.data!.newCurrentTray }
+            : null,
+        }))
+      }
 
       // Reload tray changes
       await get().loadTrayChanges()
     } catch (error) {
-      console.error('Log tray change error:', error)
+      if (__DEV__) console.error('Log tray change error:', error)
     }
   },
 
@@ -595,7 +602,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         set({ assignedDoctor: response.data.doctor || null })
       }
     } catch (error) {
-      console.error('Load assigned doctor error:', error)
+      if (__DEV__) console.error('Load assigned doctor error:', error)
       set({ assignedDoctor: null })
     }
   },
@@ -615,7 +622,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         set({ assignedPatients: response.data.patients })
       }
     } catch (error) {
-      console.error('Load assigned patients error:', error)
+      if (__DEV__) console.error('Load assigned patients error:', error)
       set({ assignedPatients: [] })
     }
   },
@@ -635,7 +642,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         set({ invitations: response.data.pendingInvitations || [] })
       }
     } catch (error) {
-      console.error('Load invitations error:', error)
+      if (__DEV__) console.error('Load invitations error:', error)
       set({ invitations: [] })
     }
   },
@@ -658,7 +665,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         return code
       }
     } catch (error) {
-      console.error('Get doctor code error:', error)
+      if (__DEV__) console.error('Get doctor code error:', error)
     }
 
     return null
@@ -771,7 +778,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
       return response.data
     } catch (error) {
-      console.error('Get patient by ID error:', error)
+      if (__DEV__) console.error('Get patient by ID error:', error)
       return null
     }
   },
@@ -811,7 +818,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         })
       }
     } catch (error) {
-      console.error('Load practice info error:', error)
+      if (__DEV__) console.error('Load practice info error:', error)
     }
   },
 
@@ -894,14 +901,14 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await linkedPatientApi.getAppointments()
 
         if (response.error || !response.data) {
-          console.error('Load appointments error:', response.error)
+          if (__DEV__) console.error('Load appointments error:', response.error)
           return
         }
 
         set({ appointments: response.data })
       }
     } catch (error) {
-      console.error('Load appointments error:', error)
+      if (__DEV__) console.error('Load appointments error:', error)
     }
   },
 
@@ -913,25 +920,15 @@ export const usePatientStore = create<PatientState>((set, get) => ({
         const response = await linkedPatientApi.getAvailableSlots(startDate, endDate)
 
         if (response.error || !response.data) {
-          console.error('Load available slots error:', response.error)
+          if (__DEV__) console.error('Load available slots error:', response.error)
           set({ availableSlots: [] })
           return
-        }
-
-        // Temporary debug logging - remove after fixing missing dates
-        if (response.data._debug) {
-          console.log('=== AVAILABLE SLOTS DEBUG ===')
-          console.log('Practice source:', response.data._debug.practiceSource)
-          console.log('Date range:', response.data._debug.requestedRange)
-          console.log('All schedules in DB:', JSON.stringify(response.data._debug.allSchedulesInRange, null, 2))
-          console.log('Matched (active + unbooked):', JSON.stringify(response.data._debug.matchedSchedules, null, 2))
-          console.log('============================')
         }
 
         set({ availableSlots: response.data.slots })
       }
     } catch (error) {
-      console.error('Load available slots error:', error)
+      if (__DEV__) console.error('Load available slots error:', error)
       set({ availableSlots: [] })
     }
   },
@@ -991,7 +988,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
 
   getTodayLog: () => {
     const { todayWearMinutes } = get()
-    const today = new Date().toISOString().split('T')[0]
+    const today = toLocalDateStr()
     return { date: today, wearMinutes: todayWearMinutes }
   },
 
@@ -1057,13 +1054,13 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     }
 
     const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
+    const todayStr = toLocalDateStr(today)
     const treatmentStart = patient?.startDate || todayStr
 
     // Calculate weekly average (only count days since treatment started, max 7)
     const sevenDaysAgo = new Date(today)
     sevenDaysAgo.setDate(today.getDate() - 6)
-    const weekStartDate = sevenDaysAgo.toISOString().split('T')[0]
+    const weekStartDate = toLocalDateStr(sevenDaysAgo)
     const effectiveWeekStart = treatmentStart > weekStartDate ? treatmentStart : weekStartDate
 
     const weeklyLogs = dailyLogs.filter(log => log.date >= effectiveWeekStart && log.date <= todayStr)
@@ -1077,7 +1074,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     // Calculate monthly average (only count days since treatment started, max 30)
     const thirtyDaysAgo = new Date(today)
     thirtyDaysAgo.setDate(today.getDate() - 29)
-    const monthStartDate = thirtyDaysAgo.toISOString().split('T')[0]
+    const monthStartDate = toLocalDateStr(thirtyDaysAgo)
     const effectiveMonthStart = treatmentStart > monthStartDate ? treatmentStart : monthStartDate
 
     const monthlyLogs = dailyLogs.filter(log => log.date >= effectiveMonthStart && log.date <= todayStr)
@@ -1094,7 +1091,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
     checkDate.setDate(checkDate.getDate() - 1)
 
     while (true) {
-      const dateStr = checkDate.toISOString().split('T')[0]
+      const dateStr = toLocalDateStr(checkDate)
       const log = dailyLogs.find(l => l.date === dateStr)
 
       if (log && getLogSeconds(log) >= minimumSecondsForDay) {
@@ -1140,7 +1137,7 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       }
 
       if (response.error || !response.data) {
-        console.error('Log wear API error:', response.error)
+        if (__DEV__) console.error('Log wear API error:', response.error)
         return { success: false, error: response.error?.message || 'Failed to save wear log' }
       }
 
@@ -1157,21 +1154,21 @@ export const usePatientStore = create<PatientState>((set, get) => ({
       const existingIndex = dailyLogs.findIndex(l => l.date === dateStr)
       if (existingIndex >= 0) {
         const updatedLogs = [...dailyLogs]
-        updatedLogs[existingIndex] = newLog
+        updatedLogs[existingIndex] = { ...updatedLogs[existingIndex], ...newLog }
         set({ dailyLogs: updatedLogs })
       } else {
         set({ dailyLogs: [...dailyLogs, newLog] })
       }
 
       // If logging for today, update todayWearMinutes too
-      const todayStr = new Date().toISOString().split('T')[0]
+      const todayStr = toLocalDateStr()
       if (dateStr === todayStr) {
         set({ todayWearMinutes: minutes, todayWearSeconds: seconds })
       }
 
       return { success: true }
     } catch (error) {
-      console.error('Log wear error:', error)
+      if (__DEV__) console.error('Log wear error:', error)
       return { success: false, error: 'Network error' }
     }
   },

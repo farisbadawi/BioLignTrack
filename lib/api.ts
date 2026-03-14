@@ -1,12 +1,46 @@
 import { API_BASE_URL } from './auth0';
 
+// ── Token state ────────────────────────────────────────
 let accessToken: string | null = null;
+let tokenExpiresAt: number = 0;
+let refreshCallback: (() => Promise<string | null>) | null = null;
+let refreshPromise: Promise<string | null> | null = null;
 
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
 };
 
+export const setTokenExpiresAt = (expiresAt: number) => {
+  tokenExpiresAt = expiresAt;
+};
+
 export const getAccessToken = () => accessToken;
+
+/**
+ * Register a callback that api.ts will invoke when a 401 is received
+ * or the token is near expiry. The callback should refresh the token,
+ * call setAccessToken with the new value, and return it.
+ */
+export const registerTokenRefresh = (callback: () => Promise<string | null>) => {
+  refreshCallback = callback;
+};
+
+/**
+ * Refresh the token, deduplicating concurrent requests so only one
+ * refresh is in-flight at a time.
+ */
+async function refreshTokenIfNeeded(): Promise<string | null> {
+  if (!refreshCallback) return null;
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = refreshCallback().finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
+// ── API request ────────────────────────────────────────
 
 interface ApiResponse<T> {
   data?: T;
@@ -19,20 +53,27 @@ async function apiRequest<T>(
 ): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint}`;
 
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
+  const makeRequest = async (token: string | null) => {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    };
+    if (token) {
+      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+    return fetch(url, { ...options, headers });
   };
 
-  if (accessToken) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
-  }
-
   try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    let response = await makeRequest(accessToken);
+
+    // On 401, try refreshing the token and retry once
+    if (response.status === 401 && refreshCallback) {
+      const newToken = await refreshTokenIfNeeded();
+      if (newToken) {
+        response = await makeRequest(newToken);
+      }
+    }
 
     const json = await response.json();
 
@@ -42,7 +83,7 @@ async function apiRequest<T>(
 
     return json;
   } catch (error) {
-    console.error('API request error:', error);
+    if (__DEV__) console.error('API request error:', error);
     return { error: { message: 'Network error', code: 'NETWORK_ERROR' } };
   }
 }

@@ -2,10 +2,11 @@ import { Tabs } from "expo-router";
 import { Calendar, MessageCircle, User, Users, BarChart3, UserPlus } from "lucide-react-native";
 import React from "react";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useChatStore } from "@/stores/chat-store";
 
 export default function DoctorTabLayout() {
   const { colors } = useTheme();
-  const unreadMessages = 0; // TODO: Implement messaging
+  const unreadMessages = useChatStore((s) => s.totalUnread);
 
   return (
     <Tabs

@@ -27,6 +27,7 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
   const [hours, setHours] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const targetHours = patient?.dailyWearTarget ? patient.dailyWearTarget / 60 : 22;
 
@@ -40,6 +41,7 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
       setHours('');
     }
     setSaved(false);
+    setValidationError(null);
   }, [selectedDate, dailyLogs]);
 
   const formatDate = (date: Date) => {
@@ -63,7 +65,8 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
     const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() + days);
 
-    // Don't allow future dates
+    // Don't allow future dates (compare date part only)
+    if (newDate.toDateString() === new Date().toDateString() && days > 0) return;
     if (newDate > new Date()) return;
 
     // Don't allow dates more than 30 days ago
@@ -77,8 +80,12 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
   const handleSave = async () => {
     const hoursNum = parseFloat(hours);
     if (isNaN(hoursNum) || hoursNum < 0 || hoursNum > 24) {
+      setValidationError(
+        isNaN(hoursNum) ? 'Please enter a valid number' : 'Hours must be between 0 and 24'
+      );
       return;
     }
+    setValidationError(null);
 
     setSaving(true);
     // Use local date to match chart display (not UTC which could be next day)
@@ -189,6 +196,11 @@ export function LogHoursModal({ visible, onClose }: LogHoursModalProps) {
               <Text style={[styles.targetText, { color: colors.textSecondary }]}>
                 Daily target: {targetHours} hours
               </Text>
+              {validationError && (
+                <Text style={[styles.targetText, { color: colors.error, marginTop: 4 }]}>
+                  {validationError}
+                </Text>
+              )}
             </View>
 
             {/* Quick Select */}

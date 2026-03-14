@@ -3,7 +3,6 @@
 
 import * as Notifications from 'expo-notifications'
 import * as Device from 'expo-device'
-import { Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // Configure how notifications appear when app is in foreground
@@ -55,22 +54,26 @@ class NotificationServiceImpl implements NotificationService {
 
     // Check if this is a physical device (notifications don't work on simulator)
     if (!Device.isDevice) {
-      console.log('Notifications: Running on simulator, notifications will be limited')
+      if (__DEV__) console.log('Notifications: Running on simulator, notifications will be limited')
     }
 
     // Set up notification categories for actions
-    await Notifications.setNotificationCategoryAsync('wear_reminder', [
-      {
-        identifier: 'done',
-        buttonTitle: 'Done',
-        options: { opensAppToForeground: false },
-      },
-      {
-        identifier: 'snooze',
-        buttonTitle: 'Snooze 30min',
-        options: { opensAppToForeground: false },
-      },
-    ])
+    try {
+      await Notifications.setNotificationCategoryAsync('wear_reminder', [
+        {
+          identifier: 'done',
+          buttonTitle: 'Done',
+          options: { opensAppToForeground: false },
+        },
+        {
+          identifier: 'snooze',
+          buttonTitle: 'Snooze 30min',
+          options: { opensAppToForeground: false },
+        },
+      ])
+    } catch (error) {
+      if (__DEV__) console.error('Failed to set notification category:', error)
+    }
 
     this.isInitialized = true
     return true
@@ -91,19 +94,23 @@ class NotificationServiceImpl implements NotificationService {
       }
 
       if (finalStatus !== 'granted') {
-        console.log('Notification permission not granted')
+        if (__DEV__) console.log('Notification permission not granted')
         return false
       }
 
       // Get push token for remote notifications (future use)
       if (Device.isDevice) {
-        const token = (await Notifications.getExpoPushTokenAsync()).data
-        await AsyncStorage.setItem(STORAGE_KEYS.PUSH_TOKEN, token)
+        try {
+          const token = (await Notifications.getExpoPushTokenAsync()).data
+          await AsyncStorage.setItem(STORAGE_KEYS.PUSH_TOKEN, token)
+        } catch (error) {
+          if (__DEV__) console.error('Failed to get push token:', error)
+        }
       }
 
       return true
     } catch (error) {
-      console.error('Error requesting notification permissions:', error)
+      if (__DEV__) console.error('Error requesting notification permissions:', error)
       return false
     }
   }
@@ -112,8 +119,12 @@ class NotificationServiceImpl implements NotificationService {
    * Check current permission status
    */
   async getPermissionStatus(): Promise<boolean> {
-    const { status } = await Notifications.getPermissionsAsync()
-    return status === 'granted'
+    try {
+      const { status } = await Notifications.getPermissionsAsync()
+      return status === 'granted'
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -132,12 +143,12 @@ class NotificationServiceImpl implements NotificationService {
 
     const hasPermission = await this.getPermissionStatus()
     if (!hasPermission) {
-      console.log('No notification permission for wear reminders')
+      if (__DEV__) console.log('No notification permission for wear reminders')
       return
     }
 
     const messages = [
-      "Time to check your aligners! Are they in? 😬",
+      "Time to check your aligners! Are they in?",
       "Aligner check! Remember, 22 hours a day for best results.",
       "Quick reminder: Pop those aligners back in!",
       "Your smile is counting on you! Aligners in?",
@@ -148,26 +159,29 @@ class NotificationServiceImpl implements NotificationService {
       const time = times[i]
       const [hours, minutes] = time.split(':').map(Number)
 
-      // Schedule a daily repeating notification
-      await Notifications.scheduleNotificationAsync({
-        identifier: `${NOTIFICATION_IDS.WEAR_REMINDER_PREFIX}${i}`,
-        content: {
-          title: 'Wear Reminder',
-          body: messages[i % messages.length],
-          sound: true,
-          categoryIdentifier: 'wear_reminder',
-          data: { type: 'wear_reminder', time },
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DAILY,
-          hour: hours,
-          minute: minutes,
-        },
-      })
+      try {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `${NOTIFICATION_IDS.WEAR_REMINDER_PREFIX}${i}`,
+          content: {
+            title: 'Wear Reminder',
+            body: messages[i % messages.length],
+            sound: true,
+            categoryIdentifier: 'wear_reminder',
+            data: { type: 'wear_reminder', time },
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DAILY,
+            hour: hours,
+            minute: minutes,
+          },
+        })
+      } catch (error) {
+        if (__DEV__) console.error(`Failed to schedule wear reminder ${i}:`, error)
+      }
     }
 
     await AsyncStorage.setItem(STORAGE_KEYS.WEAR_REMINDERS_SCHEDULED, 'true')
-    console.log(`Scheduled ${times.length} daily wear reminders`)
+    if (__DEV__) console.log(`Scheduled ${times.length} daily wear reminders`)
   }
 
   /**
@@ -187,14 +201,14 @@ class NotificationServiceImpl implements NotificationService {
 
     const hasPermission = await this.getPermissionStatus()
     if (!hasPermission) {
-      console.log('No notification permission for tray change reminder')
+      if (__DEV__) console.log('No notification permission for tray change reminder')
       return
     }
 
     // Only schedule if the change date is in the future
     const now = new Date()
     if (changeDate <= now) {
-      console.log('Tray change date is in the past, not scheduling')
+      if (__DEV__) console.log('Tray change date is in the past, not scheduling')
       return
     }
 
@@ -207,22 +221,26 @@ class NotificationServiceImpl implements NotificationService {
       triggerDate.setDate(triggerDate.getDate() + 1)
     }
 
-    await Notifications.scheduleNotificationAsync({
-      identifier: NOTIFICATION_IDS.TRAY_CHANGE,
-      content: {
-        title: 'Time for a New Tray! 🎉',
-        body: `Today's the day! Switch to Tray #${trayNumber} for continued progress.`,
-        sound: true,
-        data: { type: 'tray_change', trayNumber },
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: triggerDate,
-      },
-    })
+    try {
+      await Notifications.scheduleNotificationAsync({
+        identifier: NOTIFICATION_IDS.TRAY_CHANGE,
+        content: {
+          title: 'Time for a New Tray!',
+          body: `Today's the day! Switch to Tray #${trayNumber} for continued progress.`,
+          sound: true,
+          data: { type: 'tray_change', trayNumber },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: triggerDate,
+        },
+      })
 
-    await AsyncStorage.setItem(STORAGE_KEYS.TRAY_CHANGE_SCHEDULED, 'true')
-    console.log(`Scheduled tray change reminder for ${triggerDate.toLocaleDateString()}`)
+      await AsyncStorage.setItem(STORAGE_KEYS.TRAY_CHANGE_SCHEDULED, 'true')
+      if (__DEV__) console.log(`Scheduled tray change reminder for ${triggerDate.toLocaleDateString()}`)
+    } catch (error) {
+      if (__DEV__) console.error('Failed to schedule tray change reminder:', error)
+    }
   }
 
   /**
@@ -233,7 +251,7 @@ class NotificationServiceImpl implements NotificationService {
   async sendMessageNotification(senderName: string, messagePreview: string): Promise<void> {
     const hasPermission = await this.getPermissionStatus()
     if (!hasPermission) {
-      console.log('No notification permission for message notification')
+      if (__DEV__) console.log('No notification permission for message notification')
       return
     }
 
@@ -242,28 +260,36 @@ class NotificationServiceImpl implements NotificationService {
       ? messagePreview.substring(0, 97) + '...'
       : messagePreview
 
-    await Notifications.scheduleNotificationAsync({
-      identifier: `${NOTIFICATION_IDS.MESSAGE}${Date.now()}`,
-      content: {
-        title: `New message from ${senderName}`,
-        body: truncatedPreview,
-        sound: true,
-        data: { type: 'message', senderName },
-      },
-      trigger: null, // Immediate notification
-    })
+    try {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `${NOTIFICATION_IDS.MESSAGE}${Date.now()}`,
+        content: {
+          title: `New message from ${senderName}`,
+          body: truncatedPreview,
+          sound: true,
+          data: { type: 'message', senderName },
+        },
+        trigger: null, // Immediate notification
+      })
+    } catch (error) {
+      if (__DEV__) console.error('Failed to send message notification:', error)
+    }
   }
 
   /**
    * Cancel all scheduled wear reminders
    */
   async cancelAllWearReminders(): Promise<void> {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync()
+    try {
+      const scheduled = await Notifications.getAllScheduledNotificationsAsync()
 
-    for (const notification of scheduled) {
-      if (notification.identifier.startsWith(NOTIFICATION_IDS.WEAR_REMINDER_PREFIX)) {
-        await Notifications.cancelScheduledNotificationAsync(notification.identifier)
+      for (const notification of scheduled) {
+        if (notification.identifier.startsWith(NOTIFICATION_IDS.WEAR_REMINDER_PREFIX)) {
+          await Notifications.cancelScheduledNotificationAsync(notification.identifier)
+        }
       }
+    } catch (error) {
+      if (__DEV__) console.error('Failed to cancel wear reminders:', error)
     }
 
     await AsyncStorage.setItem(STORAGE_KEYS.WEAR_REMINDERS_SCHEDULED, 'false')
@@ -273,7 +299,11 @@ class NotificationServiceImpl implements NotificationService {
    * Cancel tray change reminder
    */
   async cancelTrayChangeReminder(): Promise<void> {
-    await Notifications.cancelScheduledNotificationAsync(NOTIFICATION_IDS.TRAY_CHANGE)
+    try {
+      await Notifications.cancelScheduledNotificationAsync(NOTIFICATION_IDS.TRAY_CHANGE)
+    } catch {
+      // May not exist — ignore
+    }
     await AsyncStorage.setItem(STORAGE_KEYS.TRAY_CHANGE_SCHEDULED, 'false')
   }
 

@@ -33,7 +33,7 @@ export function connectSocket(): Socket {
   });
 
   socket.on('connect', () => {
-    console.log('[Socket] Connected:', socket?.id);
+    if (__DEV__) console.log('[Socket] Connected:', socket?.id);
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -41,11 +41,11 @@ export function connectSocket(): Socket {
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('[Socket] Disconnected:', reason);
+    if (__DEV__) console.log('[Socket] Disconnected:', reason);
   });
 
   socket.on('connect_error', (err) => {
-    console.error('[Socket] Connection error:', err.message);
+    if (__DEV__) console.error('[Socket] Connection error:', err.message);
   });
 
   return socket;
@@ -70,6 +70,19 @@ export function disconnectSocket(): void {
     socket.removeAllListeners();
     socket.disconnect();
     socket = null;
+  }
+}
+
+/**
+ * Update the auth token on the existing socket so reconnections use
+ * the fresh token. Call this after a token refresh.
+ */
+export function updateSocketAuth(): void {
+  if (socket) {
+    const token = getAccessToken();
+    if (token) {
+      (socket as any).auth = { token };
+    }
   }
 }
 

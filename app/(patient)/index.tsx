@@ -8,6 +8,7 @@ import {
 } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
+import { useChatStore } from '@/stores/chat-store';
 import { Card } from '@/components/Card';
 import { ProgressRing } from '@/components/ProgressRing';
 import { LogHoursModal } from '@/components/LogHoursModal';
@@ -32,7 +33,7 @@ export default function PatientDashboard() {
     dailyLogs,
     hasTreatment
   } = usePatientStore();
-  const unreadMessages = 0; // TODO: Implement messaging
+  const unreadMessages = useChatStore((s) => s.totalUnread);
   const { colors } = useTheme();
   const [showLogHoursModal, setShowLogHoursModal] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);

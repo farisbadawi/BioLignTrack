@@ -56,7 +56,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     notificationService.scheduleWearReminders(
       notificationSettings.wear_reminder_times,
       notificationSettings.wear_reminders
-    )
+    ).catch((err) => {
+      if (__DEV__) console.error('Failed to schedule wear reminders:', err)
+    })
   }, [profile, userType, notificationSettings.wear_reminders, notificationSettings.wear_reminder_times])
 
   // Schedule tray change reminder when patient data changes
@@ -76,7 +78,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         nextChangeDate,
         currentTray + 1,
         notificationSettings.tray_change_reminders
-      )
+      ).catch((err) => {
+        if (__DEV__) console.error('Failed to schedule tray change reminder:', err)
+      })
     }
   }, [profile, userType, notificationSettings.tray_change_reminders, patient?.currentTray])
 

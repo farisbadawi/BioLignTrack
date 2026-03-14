@@ -1,5 +1,5 @@
 // components/CustomAlert.tsx - Themed custom alert modal
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { Colors, Spacing, BorderRadius } from '@/constants/colors';
+import { Spacing, BorderRadius } from '@/constants/colors';
+import { useTheme } from '@/contexts/ThemeContext';
 import { CheckCircle, AlertCircle, Info, XCircle } from 'lucide-react-native';
 
 export interface AlertButton {
@@ -34,38 +35,38 @@ export function CustomAlert({
   onClose,
   type = 'info',
 }: CustomAlertProps) {
+  const { colors } = useTheme();
+
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return <CheckCircle size={48} color={Colors.success} />;
+        return <CheckCircle size={48} color={colors.success} />;
       case 'error':
-        return <XCircle size={48} color={Colors.error} />;
+        return <XCircle size={48} color={colors.error} />;
       case 'warning':
-        return <AlertCircle size={48} color={Colors.warning} />;
+        return <AlertCircle size={48} color={colors.warning} />;
       default:
-        return <Info size={48} color={Colors.primary} />;
+        return <Info size={48} color={colors.primary} />;
     }
   };
 
   const getButtonStyle = (style?: string) => {
     switch (style) {
       case 'destructive':
-        return styles.destructiveButton;
+        return { backgroundColor: colors.error };
       case 'cancel':
-        return styles.cancelButton;
+        return { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border };
       default:
-        return styles.defaultButton;
+        return { backgroundColor: colors.primary };
     }
   };
 
-  const getButtonTextStyle = (style?: string) => {
+  const getButtonTextColor = (style?: string) => {
     switch (style) {
-      case 'destructive':
-        return styles.destructiveButtonText;
       case 'cancel':
-        return styles.cancelButtonText;
+        return colors.textPrimary;
       default:
-        return styles.defaultButtonText;
+        return colors.background;
     }
   };
 
@@ -79,12 +80,12 @@ export function CustomAlert({
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback>
-            <View style={styles.alertContainer}>
+            <View style={[styles.alertContainer, { backgroundColor: colors.background }]}>
               <View style={styles.iconContainer}>{getIcon()}</View>
 
-              <Text style={styles.title}>{title}</Text>
+              <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
 
-              {message && <Text style={styles.message}>{message}</Text>}
+              {message && <Text style={[styles.message, { color: colors.textSecondary }]}>{message}</Text>}
 
               <View style={styles.buttonContainer}>
                 {buttons.map((button, index) => (
@@ -99,8 +100,10 @@ export function CustomAlert({
                       button.onPress?.();
                       onClose();
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel={button.text}
                   >
-                    <Text style={[styles.buttonText, getButtonTextStyle(button.style)]}>
+                    <Text style={[styles.buttonText, { color: getButtonTextColor(button.style) }]}>
                       {button.text}
                     </Text>
                   </TouchableOpacity>
@@ -115,8 +118,6 @@ export function CustomAlert({
 }
 
 // Hook for using the alert
-import { useState, useCallback } from 'react';
-
 export interface AlertConfig {
   title: string;
   message?: string;
@@ -165,7 +166,6 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
   },
   alertContainer: {
-    backgroundColor: Colors.background,
     borderRadius: BorderRadius.xl,
     padding: Spacing.xl,
     width: '100%',
@@ -183,13 +183,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.textPrimary,
     textAlign: 'center',
     marginBottom: Spacing.sm,
   },
   message: {
     fontSize: 16,
-    color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: Spacing.lg,
@@ -205,32 +203,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 48,
   },
   buttonMarginRight: {
     marginRight: Spacing.sm,
   },
-  defaultButton: {
-    backgroundColor: Colors.primary,
-  },
-  cancelButton: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  destructiveButton: {
-    backgroundColor: Colors.error,
-  },
   buttonText: {
     fontSize: 16,
     fontWeight: '600',
-  },
-  defaultButtonText: {
-    color: Colors.background,
-  },
-  cancelButtonText: {
-    color: Colors.textPrimary,
-  },
-  destructiveButtonText: {
-    color: Colors.background,
   },
 });

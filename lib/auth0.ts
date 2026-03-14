@@ -28,7 +28,7 @@ export const getRedirectUri = () => {
     scheme: 'com.bioligntrack',
     // For Expo Go, this uses the proxy; for standalone, uses native scheme
   });
-  console.log('Redirect URI:', uri);
+  if (__DEV__) console.log('Redirect URI:', uri);
   return uri;
 };
 

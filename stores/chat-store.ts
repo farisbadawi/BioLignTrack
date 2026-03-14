@@ -37,6 +37,10 @@ interface TypingState {
   isTyping: boolean;
 }
 
+/** Auto-clear typing indicator after this many ms if no stop event received */
+const TYPING_TIMEOUT_MS = 15000;
+const typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
 interface ChatState {
   // Connection
   connected: boolean;
@@ -92,15 +96,19 @@ async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T | 
       },
     });
     if (!res.ok) {
-      console.error(`[Chat API] ${res.status}:`, await res.text());
+      if (__DEV__) console.error(`[Chat API] ${res.status}:`, await res.text());
       return null;
     }
     const json = await res.json();
     return json.data as T;
   } catch (err) {
-    console.error('[Chat API] Fetch error:', err);
+    if (__DEV__) console.error('[Chat API] Fetch error:', err);
     return null;
   }
+}
+
+function computeTotalUnread(conversations: Conversation[]): number {
+  return conversations.reduce((sum, c) => sum + c.unreadCount, 0);
 }
 
 // ── Store ──────────────────────────────────────────────
@@ -133,7 +141,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       setupSocketListeners(socket, set, get);
       set({ connected: true, connecting: false });
     } catch (err) {
-      console.error('[Chat] Connect failed:', err);
+      if (__DEV__) console.error('[Chat] Connect failed:', err);
       set({ connecting: false });
     }
   },
@@ -175,9 +183,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const data = await apiFetch<{ messages: Message[]; hasMore: boolean; cursor: number | null }>(url);
 
     if (data) {
-      const newMessages = loadMore
-        ? [...existing, ...data.messages]
-        : data.messages;
+      const currentMsgs = get().messages[conversationId] || [];
+      let newMessages: Message[];
+
+      if (loadMore) {
+        // Append older messages, deduplicating by id
+        const existingIds = new Set(currentMsgs.map(m => m.id));
+        const unique = data.messages.filter(m => !existingIds.has(m.id));
+        newMessages = [...currentMsgs, ...unique];
+      } else {
+        // Fresh load — preserve any pending/optimistic messages
+        const pending = currentMsgs.filter(m => m.pending || m.failed);
+        const serverIds = new Set(data.messages.map(m => m.id));
+        const keepPending = pending.filter(m => !serverIds.has(m.id));
+        newMessages = [...keepPending, ...data.messages];
+      }
 
       set({
         messages: { ...get().messages, [conversationId]: newMessages },
@@ -194,7 +214,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage(conversationId, content) {
     const socket = getSocket();
     if (!socket?.connected) {
-      console.error('[Chat] Socket not connected, cannot send');
+      if (__DEV__) console.error('[Chat] Socket not connected, cannot send');
       return;
     }
 
@@ -255,36 +275,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ── Mark read ─────────────────────────────────────
 
   async markRead(conversationId, userType) {
+    const previousConvs = get().conversations;
+
     // Optimistic update
-    const convs = get().conversations.map((c) =>
+    const convs = previousConvs.map((c) =>
       c.id === conversationId ? { ...c, unreadCount: 0 } : c
     );
-    set({ conversations: convs });
+    set({ conversations: convs, totalUnread: computeTotalUnread(convs) });
 
-    // Also emit via socket for real-time read receipt
+    // Emit via socket for real-time read receipt
     const socket = getSocket();
     if (socket?.connected) {
       socket.emit('mark_read', { conversationId });
     }
 
-    // Also call REST API as fallback
-    await apiFetch(`${getBaseUrl(userType)}/conversations/${conversationId}/read`, {
+    // REST API fallback
+    const result = await apiFetch(`${getBaseUrl(userType)}/conversations/${conversationId}/read`, {
       method: 'PATCH',
     });
 
-    // Recalculate total unread
-    const total = get().conversations.reduce((sum, c) => sum + c.unreadCount, 0);
-    set({ totalUnread: total });
+    // Rollback on failure
+    if (!result) {
+      set({ conversations: previousConvs, totalUnread: computeTotalUnread(previousConvs) });
+    }
   },
 
   // ── Typing indicators ────────────────────────────
 
   startTyping(conversationId) {
     getSocket()?.emit('typing_start', { conversationId });
+    // Auto-stop after timeout in case stopTyping is never called
+    const key = `self_${conversationId}`;
+    if (typingTimers[key]) clearTimeout(typingTimers[key]);
+    typingTimers[key] = setTimeout(() => {
+      getSocket()?.emit('typing_stop', { conversationId });
+      delete typingTimers[key];
+    }, TYPING_TIMEOUT_MS);
   },
 
   stopTyping(conversationId) {
     getSocket()?.emit('typing_stop', { conversationId });
+    const key = `self_${conversationId}`;
+    if (typingTimers[key]) {
+      clearTimeout(typingTimers[key]);
+      delete typingTimers[key];
+    }
   },
 
   // ── Active conversation ──────────────────────────
@@ -340,6 +375,13 @@ function setupSocketListeners(
   set: (state: Partial<ChatState> | ((state: ChatState) => Partial<ChatState>)) => void,
   get: () => ChatState
 ) {
+  // Remove previous chat-specific listeners to prevent duplicates
+  socket.off('new_message');
+  socket.off('new_message_notification');
+  socket.off('typing');
+  socket.off('read_receipt');
+  socket.off('unread_count');
+
   socket.on('connect', () => {
     set({ connected: true, connecting: false });
   });
@@ -371,7 +413,7 @@ function setupSocketListeners(
           }
         : c
     );
-    set({ conversations: convs });
+    set({ conversations: convs, totalUnread: computeTotalUnread(convs) });
 
     // Auto-mark read if viewing this conversation
     if (get().activeConversationId === convId) {
@@ -381,13 +423,14 @@ function setupSocketListeners(
 
   // New message notification (for conversations not currently viewed)
   socket.on('new_message_notification', (data: { conversationId: number; message: Message }) => {
-    const total = get().conversations.reduce((sum, c) => sum + c.unreadCount, 0);
+    const total = computeTotalUnread(get().conversations);
     set({ totalUnread: total });
   });
 
   // Typing indicator
   socket.on('typing', (data: { conversationId: number; userId: number; userType: string; isTyping: boolean }) => {
     const convTyping = get().typingUsers[data.conversationId] || [];
+    const timerKey = `${data.conversationId}_${data.userId}`;
 
     if (data.isTyping) {
       // Add typing user (avoid duplicates)
@@ -399,8 +442,24 @@ function setupSocketListeners(
           },
         });
       }
+      // Auto-clear typing after timeout
+      if (typingTimers[timerKey]) clearTimeout(typingTimers[timerKey]);
+      typingTimers[timerKey] = setTimeout(() => {
+        const current = get().typingUsers[data.conversationId] || [];
+        set({
+          typingUsers: {
+            ...get().typingUsers,
+            [data.conversationId]: current.filter((t) => t.userId !== data.userId),
+          },
+        });
+        delete typingTimers[timerKey];
+      }, TYPING_TIMEOUT_MS);
     } else {
       // Remove typing user
+      if (typingTimers[timerKey]) {
+        clearTimeout(typingTimers[timerKey]);
+        delete typingTimers[timerKey];
+      }
       set({
         typingUsers: {
           ...get().typingUsers,

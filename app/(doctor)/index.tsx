@@ -7,6 +7,7 @@ import {
 } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
+import { useChatStore } from '@/stores/chat-store';
 import { Card } from '@/components/Card';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -19,6 +20,7 @@ export default function DoctorDashboard() {
     invitations
   } = usePatientStore();
   const { colors } = useTheme();
+  const unreadMessages = useChatStore((s) => s.totalUnread);
 
   if (!profile) return null;
 
@@ -32,7 +34,6 @@ export default function DoctorDashboard() {
 
   const activePatients = assignedPatients.length;
   const pendingInvitations = invitations.filter(inv => inv.status === 'pending').length;
-  const unreadMessages = 0; // TODO: Implement messaging
 
   const urgentPatients = assignedPatients.filter(patient => {
     if (!patient.startDate) return false;
