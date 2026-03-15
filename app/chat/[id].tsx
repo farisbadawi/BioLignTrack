@@ -13,11 +13,13 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { pmsPatientMessageApi } from '@/lib/api';
 
 export default function ChatScreen() {
-  const { id, source } = useLocalSearchParams<{ id: string; source?: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const conversationId = parseInt(id, 10);
-  const isPms = source === 'pms';
   const { colors } = useTheme();
   const { userType } = usePatientStore();
+
+  // Linked patients use PMS REST API; standalone uses Socket.io chat store
+  const isPms = userType === 'linked';
 
   const {
     messages, loadMessages, sendMessage, markRead,
@@ -43,13 +45,14 @@ export default function ChatScreen() {
 
   // Get the other person's name for the header
   const otherName = isPms
-    ? 'Your Doctor'
+    ? (conversation as any)?.staffName || 'Your Clinic'
     : resolvedUserType === 'patient'
       ? conversation?.doctor?.name || 'Doctor'
       : conversation?.patient?.name || 'Patient';
 
+  // ── Standalone: Socket.io based ──────────────────────
   useEffect(() => {
-    if (isPms) return; // PMS uses REST polling, not Socket.io
+    if (isPms) return;
     if (!connected) connect();
     setActiveConversation(conversationId);
     loadMessages(conversationId, resolvedUserType);
@@ -61,7 +64,7 @@ export default function ChatScreen() {
     };
   }, [conversationId, isPms]);
 
-  // PMS message loading with polling
+  // ── PMS: REST polling ────────────────────────────────
   useEffect(() => {
     if (!isPms) return;
 
@@ -79,12 +82,12 @@ export default function ChatScreen() {
     loadPmsMessages();
     const interval = setInterval(loadPmsMessages, 5000);
 
-    // Mark as read
     pmsPatientMessageApi.markRead(conversationId).catch(() => {});
 
     return () => clearInterval(interval);
   }, [isPms, conversationId]);
 
+  // ── Send ─────────────────────────────────────────────
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text) return;
@@ -118,7 +121,7 @@ export default function ChatScreen() {
 
   const handleTextChange = useCallback((text: string) => {
     setInputText(text);
-    if (isPms) return; // No typing indicators for PMS
+    if (isPms) return;
 
     if (text.trim()) {
       startTyping(conversationId);
@@ -132,10 +135,10 @@ export default function ChatScreen() {
   }, [conversationId, isPms]);
 
   const handleLoadMore = useCallback(() => {
-    if (!isLoading && hasMore) {
+    if (!isLoading && hasMore && !isPms) {
       loadMessages(conversationId, resolvedUserType, true);
     }
-  }, [isLoading, hasMore, conversationId, resolvedUserType]);
+  }, [isLoading, hasMore, conversationId, resolvedUserType, isPms]);
 
   const formatMessageTime = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -152,7 +155,6 @@ export default function ChatScreen() {
     return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
   };
 
-  // Check if we should show a date separator before this message
   const shouldShowDate = (index: number) => {
     if (index === chatMessages.length - 1) return true;
     const current = new Date(chatMessages[index].createdAt).toDateString();

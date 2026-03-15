@@ -15,8 +15,12 @@ export default function PatientMessagesScreen() {
   const { colors } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [pmsConversations, setPmsConversations] = useState<any[]>([]);
+  const [pmsLoading, setPmsLoading] = useState(false);
+
+  const isLinked = userType === 'linked';
 
   const loadPmsConversations = async () => {
+    setPmsLoading(true);
     try {
       const response = await pmsPatientMessageApi.getConversations();
       if (response.data && Array.isArray(response.data)) {
@@ -25,33 +29,33 @@ export default function PatientMessagesScreen() {
     } catch {
       // PMS messaging not available
     }
+    setPmsLoading(false);
   };
 
   useEffect(() => {
-    if (!connected) connect();
-    loadConversations('patient');
-    loadUnreadCount('patient');
-    loadPmsConversations();
+    if (isLinked) {
+      // PMS patients — only load PMS conversations
+      loadPmsConversations();
+    } else {
+      // Standalone patients — only load standalone conversations via Socket.io
+      if (!connected) connect();
+      loadConversations('patient');
+      loadUnreadCount('patient');
+    }
   }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadConversations('patient');
-    await loadPmsConversations();
+    if (isLinked) {
+      await loadPmsConversations();
+    } else {
+      await loadConversations('patient');
+    }
     setRefreshing(false);
-  }, []);
+  }, [isLinked]);
 
-  const allConversations = [
-    ...conversations.map(c => ({ ...c, source: 'standalone' as const })),
-    ...pmsConversations.map(c => ({ ...c, source: 'pms' as const })),
-  ].sort((a, b) => {
-    if (!a.lastMessageAt) return 1;
-    if (!b.lastMessageAt) return -1;
-    return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
-  });
-
-  // If no doctor linked (standalone with no doctor code entered)
-  if (!assignedDoctor && userType !== 'linked' && pmsConversations.length === 0) {
+  // For standalone patients with no doctor linked
+  if (!isLinked && !assignedDoctor) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <View style={[styles.emptyContainer, { backgroundColor: colors.surface }]}>
@@ -71,6 +75,13 @@ export default function PatientMessagesScreen() {
     );
   }
 
+  // Pick the right conversation list based on user type
+  const displayConversations = isLinked ? pmsConversations : conversations;
+  const isLoadingConversations = isLinked ? pmsLoading : loadingConversations;
+  const displayUnread = isLinked
+    ? pmsConversations.reduce((sum: number, c: any) => sum + (c.unreadCount || 0), 0)
+    : totalUnread;
+
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -88,16 +99,10 @@ export default function PatientMessagesScreen() {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  const renderConversation = ({ item }: { item: typeof allConversations[0] }) => (
+  const renderConversation = ({ item }: { item: any }) => (
     <TouchableOpacity
       style={[styles.conversationItem, { backgroundColor: colors.background, borderColor: colors.border }]}
-      onPress={() => {
-        if (item.source === 'pms') {
-          router.push(`/chat/${item.id}?source=pms`);
-        } else {
-          router.push(`/chat/${item.id}`);
-        }
-      }}
+      onPress={() => router.push(`/chat/${item.id}` as any)}
     >
       <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
         <User size={24} color={colors.background} />
@@ -105,7 +110,7 @@ export default function PatientMessagesScreen() {
       <View style={styles.conversationInfo}>
         <View style={styles.conversationHeader}>
           <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
-            {item.doctor?.name || item.staffName || 'Doctor'}
+            {item.doctor?.name || item.staffName || linkedPracticeName || 'Doctor'}
           </Text>
           <Text style={[styles.time, { color: colors.textSecondary }]}>
             {formatTime(item.lastMessageAt)}
@@ -135,29 +140,31 @@ export default function PatientMessagesScreen() {
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Messages</Text>
         <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
-        {totalUnread > 0 && (
+        {displayUnread > 0 && (
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {totalUnread} unread message{totalUnread !== 1 ? 's' : ''}
+            {displayUnread} unread message{displayUnread !== 1 ? 's' : ''}
           </Text>
         )}
       </View>
 
-      {loadingConversations && allConversations.length === 0 ? (
+      {isLoadingConversations && displayConversations.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      ) : allConversations.length === 0 ? (
+      ) : displayConversations.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MessageCircle size={48} color={colors.textSecondary} />
           <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Conversations</Text>
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-            Your doctor will start a conversation with you
+            {isLinked
+              ? 'Your clinic will start a conversation with you'
+              : 'Your doctor will start a conversation with you'}
           </Text>
         </View>
       ) : (
         <FlatList
-          data={allConversations}
-          keyExtractor={(item) => `${item.source}-${item.id}`}
+          data={displayConversations}
+          keyExtractor={(item) => String(item.id)}
           renderItem={renderConversation}
           contentContainerStyle={styles.list}
           refreshing={refreshing}
