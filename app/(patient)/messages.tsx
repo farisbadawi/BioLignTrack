@@ -1,15 +1,15 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  TextInput, KeyboardAvoidingView, Platform,
+  TextInput, KeyboardAvoidingView, Platform, Alert, Pressable,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { User, MessageCircle, Send, Check, CheckCheck } from 'lucide-react-native';
+import { User, MessageCircle, Send, Check, CheckCheck, X } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
 import { useChatStore, type Message } from '@/stores/chat-store';
 import { useTheme } from '@/contexts/ThemeContext';
-import { pmsPatientMessageApi } from '@/lib/api';
+import { pmsPatientMessageApi, standaloneMessageApi } from '@/lib/api';
 
 export default function PatientMessagesScreen() {
   const { assignedDoctor, userType, linkedPracticeName } = usePatientStore();
@@ -35,6 +35,9 @@ export default function PatientMessagesScreen() {
   const [inputText, setInputText] = useState('');
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  // Edit state
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
   // ── Load conversations ──────────────────────────────
 
@@ -120,6 +123,23 @@ export default function PatientMessagesScreen() {
     const text = inputText.trim();
     if (!text || !conversationId) return;
 
+    // Editing an existing message
+    if (editingMessage) {
+      if (isLinked) {
+        pmsPatientMessageApi.editMessage(conversationId, editingMessage.id, text).then(() => {
+          setPmsMessages(prev => prev.map(m => m.id === editingMessage.id ? { ...m, content: text } : m));
+        });
+      } else {
+        standaloneMessageApi.editMessage('patient', conversationId, editingMessage.id, text).then(() => {
+          loadMessages(conversationId, 'patient');
+        });
+      }
+      setEditingMessage(null);
+      setInputText('');
+      return;
+    }
+
+    // Sending a new message
     if (isLinked) {
       pmsPatientMessageApi.sendMessage(conversationId, text).then((response) => {
         if (response.data) {
@@ -143,7 +163,7 @@ export default function PatientMessagesScreen() {
       }
     }
     setInputText('');
-  }, [inputText, conversationId, isLinked]);
+  }, [inputText, conversationId, isLinked, editingMessage]);
 
   const handleTextChange = useCallback((text: string) => {
     setInputText(text);
@@ -180,6 +200,53 @@ export default function PatientMessagesScreen() {
       if (conversationId) loadMessages(conversationId, 'patient');
     }
   }, [isLinked, conversationId]);
+
+  // ── Edit / Delete ───────────────────────────────────
+
+  const handleLongPress = (msg: Message) => {
+    if (msg.senderType !== 'patient' || msg.pending || msg.failed) return;
+    Alert.alert('Message', undefined, [
+      {
+        text: 'Edit',
+        onPress: () => {
+          setEditingMessage(msg);
+          setInputText(msg.content);
+        },
+      },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete Message', 'Are you sure?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: () => handleDeleteMessage(msg),
+            },
+          ]);
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleDeleteMessage = async (msg: Message) => {
+    if (!conversationId) return;
+    if (isLinked) {
+      await pmsPatientMessageApi.deleteMessage(conversationId, msg.id);
+      setPmsMessages(prev => prev.filter(m => m.id !== msg.id));
+    } else {
+      await standaloneMessageApi.deleteMessage('patient', conversationId, msg.id);
+      // Reload messages from store
+      loadMessages(conversationId, 'patient');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setInputText('');
+  };
 
   // ── Render helpers ─────────────────────────────────
 
@@ -218,7 +285,8 @@ export default function PatientMessagesScreen() {
           </View>
         )}
         <View style={[styles.messageRow, mine ? styles.myMessageRow : styles.theirMessageRow]}>
-          <View
+          <Pressable
+            onLongPress={() => handleLongPress(item)}
             style={[
               styles.messageBubble,
               mine
@@ -226,6 +294,7 @@ export default function PatientMessagesScreen() {
                 : [styles.theirBubble, { backgroundColor: colors.background, borderColor: colors.border }],
               item.pending && { opacity: 0.6 },
               item.failed && { borderColor: colors.error, borderWidth: 1 },
+              editingMessage?.id === item.id && { borderColor: colors.warning, borderWidth: 2 },
             ]}
           >
             <Text style={[styles.messageText, { color: mine ? colors.background : colors.textPrimary }]}>
@@ -244,7 +313,7 @@ export default function PatientMessagesScreen() {
                 <Text style={[styles.failedText, { color: colors.error }]}> Failed</Text>
               )}
             </View>
-          </View>
+          </Pressable>
         </View>
       </View>
     );
@@ -356,6 +425,18 @@ export default function PatientMessagesScreen() {
           }
         />
 
+        {/* Editing banner */}
+        {editingMessage && (
+          <View style={[styles.editBanner, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+            <Text style={[styles.editBannerText, { color: colors.textSecondary }]} numberOfLines={1}>
+              Editing: {editingMessage.content}
+            </Text>
+            <TouchableOpacity onPress={handleCancelEdit} hitSlop={8}>
+              <X size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Input */}
         <View style={[styles.inputContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
           <TextInput
@@ -422,6 +503,12 @@ const styles = StyleSheet.create({
   },
   messageTime: { fontSize: 11 },
   failedText: { fontSize: 11, fontWeight: '600' },
+  editBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderTopWidth: 1,
+  },
+  editBannerText: { fontSize: 13, flex: 1, marginRight: Spacing.sm },
   inputContainer: {
     flexDirection: 'row', alignItems: 'flex-end',
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,

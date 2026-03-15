@@ -1,16 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Pressable,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Send, Check, CheckCheck } from 'lucide-react-native';
+import { ArrowLeft, Send, Check, CheckCheck, X } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
 import { useChatStore, type Message } from '@/stores/chat-store';
 import { usePatientStore } from '@/stores/patient-store';
 import { useTheme } from '@/contexts/ThemeContext';
-import { pmsPatientMessageApi } from '@/lib/api';
+import { pmsPatientMessageApi, standaloneMessageApi } from '@/lib/api';
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +33,7 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const [pmsMessages, setPmsMessages] = useState<Message[]>([]);
   const [pmsLoading, setPmsLoading] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const insets = useSafeAreaInsets();
 
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -88,10 +89,60 @@ export default function ChatScreen() {
     return () => clearInterval(interval);
   }, [isPms, conversationId]);
 
+  // ── Edit / Delete ────────────────────────────────────
+  const handleLongPress = (msg: Message) => {
+    if (msg.senderType !== resolvedUserType || msg.pending || msg.failed) return;
+    Alert.alert('Message', undefined, [
+      {
+        text: 'Edit',
+        onPress: () => { setEditingMessage(msg); setInputText(msg.content); },
+      },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete Message', 'Are you sure?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => handleDeleteMessage(msg) },
+          ]);
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleDeleteMessage = async (msg: Message) => {
+    if (isPms) {
+      await pmsPatientMessageApi.deleteMessage(conversationId, msg.id);
+      setPmsMessages(prev => prev.filter(m => m.id !== msg.id));
+    } else {
+      await standaloneMessageApi.deleteMessage(resolvedUserType, conversationId, msg.id);
+      loadMessages(conversationId, resolvedUserType);
+    }
+  };
+
+  const handleCancelEdit = () => { setEditingMessage(null); setInputText(''); };
+
   // ── Send ─────────────────────────────────────────────
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text) return;
+
+    // Editing
+    if (editingMessage) {
+      if (isPms) {
+        pmsPatientMessageApi.editMessage(conversationId, editingMessage.id, text).then(() => {
+          setPmsMessages(prev => prev.map(m => m.id === editingMessage.id ? { ...m, content: text } : m));
+        });
+      } else {
+        standaloneMessageApi.editMessage(resolvedUserType, conversationId, editingMessage.id, text).then(() => {
+          loadMessages(conversationId, resolvedUserType);
+        });
+      }
+      setEditingMessage(null);
+      setInputText('');
+      return;
+    }
 
     if (isPms) {
       pmsPatientMessageApi.sendMessage(conversationId, text).then((response) => {
@@ -118,7 +169,7 @@ export default function ChatScreen() {
       clearTimeout(typingTimerRef.current);
       typingTimerRef.current = null;
     }
-  }, [inputText, conversationId, isPms]);
+  }, [inputText, conversationId, isPms, editingMessage]);
 
   const handleTextChange = useCallback((text: string) => {
     setInputText(text);
@@ -181,7 +232,8 @@ export default function ChatScreen() {
           </View>
         )}
         <View style={[styles.messageRow, mine ? styles.myMessageRow : styles.theirMessageRow]}>
-          <View
+          <Pressable
+            onLongPress={() => handleLongPress(item)}
             style={[
               styles.messageBubble,
               mine
@@ -189,6 +241,7 @@ export default function ChatScreen() {
                 : [styles.theirBubble, { backgroundColor: colors.background, borderColor: colors.border }],
               item.pending && { opacity: 0.6 },
               item.failed && { borderColor: colors.error, borderWidth: 1 },
+              editingMessage?.id === item.id && { borderColor: colors.warning, borderWidth: 2 },
             ]}
           >
             <Text style={[styles.messageText, { color: mine ? colors.background : colors.textPrimary }]}>
@@ -207,7 +260,7 @@ export default function ChatScreen() {
                 <Text style={[styles.failedText, { color: colors.error }]}> Failed</Text>
               )}
             </View>
-          </View>
+          </Pressable>
         </View>
       </View>
     );
@@ -260,6 +313,18 @@ export default function ChatScreen() {
             ) : null
           }
         />
+
+        {/* Editing banner */}
+        {editingMessage && (
+          <View style={[styles.editBanner, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+            <Text style={[styles.editBannerText, { color: colors.textSecondary }]} numberOfLines={1}>
+              Editing: {editingMessage.content}
+            </Text>
+            <TouchableOpacity onPress={handleCancelEdit} hitSlop={8}>
+              <X size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Input */}
         <View style={[styles.inputContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
@@ -323,6 +388,12 @@ const styles = StyleSheet.create({
   },
   messageTime: { fontSize: 11 },
   failedText: { fontSize: 11, fontWeight: '600' },
+  editBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderTopWidth: 1,
+  },
+  editBannerText: { fontSize: 13, flex: 1, marginRight: Spacing.sm },
   inputContainer: {
     flexDirection: 'row', alignItems: 'flex-end',
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,

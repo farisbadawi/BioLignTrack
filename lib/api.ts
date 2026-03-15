@@ -470,6 +470,33 @@ export const standaloneDoctorApi = {
 // =====================================================
 // PMS PATIENT MESSAGING API (for patients linked to clinics)
 // =====================================================
+// =====================================================
+// STANDALONE MESSAGE ACTIONS (edit/delete for standalone)
+// =====================================================
+export const standaloneMessageApi = {
+  editMessage: (userType: 'doctor' | 'patient', conversationId: number, messageId: number, content: string) => {
+    const base = userType === 'doctor'
+      ? '/api/v1/doctor/standalone/messages'
+      : '/api/v1/patient/standalone/messages';
+    return apiRequest<{ id: number; content: string }>(`${base}/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  deleteMessage: (userType: 'doctor' | 'patient', conversationId: number, messageId: number) => {
+    const base = userType === 'doctor'
+      ? '/api/v1/doctor/standalone/messages'
+      : '/api/v1/patient/standalone/messages';
+    return apiRequest<{ success: boolean }>(`${base}/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// =====================================================
+// PMS PATIENT MESSAGING API (for patients linked to clinics)
+// =====================================================
 export const pmsPatientMessageApi = {
   getConversations: () =>
     apiRequest<any[]>('/api/v1/patient/pms-messages/conversations'),
@@ -495,6 +522,17 @@ export const pmsPatientMessageApi = {
 
   getUnreadCount: () =>
     apiRequest<{ unreadCount: number }>('/api/v1/patient/pms-messages/unread-count'),
+
+  editMessage: (conversationId: number, messageId: number, content: string) =>
+    apiRequest<{ id: number; content: string }>(`/api/v1/patient/pms-messages/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+
+  deleteMessage: (conversationId: number, messageId: number) =>
+    apiRequest<{ success: boolean }>(`/api/v1/patient/pms-messages/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'DELETE',
+    }),
 };
 
 // Legacy export for backwards compatibility
