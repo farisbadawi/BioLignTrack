@@ -7,27 +7,51 @@ import { usePatientStore } from '@/stores/patient-store';
 import { useChatStore } from '@/stores/chat-store';
 import { useTheme } from '@/contexts/ThemeContext';
 import { router } from 'expo-router';
+import { pmsPatientMessageApi } from '@/lib/api';
 
 export default function PatientMessagesScreen() {
   const { assignedDoctor, userType, linkedPracticeName } = usePatientStore();
   const { conversations, loadConversations, loadingConversations, connect, connected, totalUnread, loadUnreadCount } = useChatStore();
   const { colors } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
+  const [pmsConversations, setPmsConversations] = useState<any[]>([]);
+
+  const loadPmsConversations = async () => {
+    try {
+      const response = await pmsPatientMessageApi.getConversations();
+      if (response.data && Array.isArray(response.data)) {
+        setPmsConversations(response.data);
+      }
+    } catch {
+      // PMS messaging not available
+    }
+  };
 
   useEffect(() => {
     if (!connected) connect();
     loadConversations('patient');
     loadUnreadCount('patient');
+    loadPmsConversations();
   }, []);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadConversations('patient');
+    await loadPmsConversations();
     setRefreshing(false);
   }, []);
 
+  const allConversations = [
+    ...conversations.map(c => ({ ...c, source: 'standalone' as const })),
+    ...pmsConversations.map(c => ({ ...c, source: 'pms' as const })),
+  ].sort((a, b) => {
+    if (!a.lastMessageAt) return 1;
+    if (!b.lastMessageAt) return -1;
+    return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+  });
+
   // If no doctor linked (standalone with no doctor code entered)
-  if (!assignedDoctor && userType !== 'linked') {
+  if (!assignedDoctor && userType !== 'linked' && pmsConversations.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <View style={[styles.emptyContainer, { backgroundColor: colors.surface }]}>
@@ -64,10 +88,16 @@ export default function PatientMessagesScreen() {
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  const renderConversation = ({ item }: { item: typeof conversations[0] }) => (
+  const renderConversation = ({ item }: { item: typeof allConversations[0] }) => (
     <TouchableOpacity
       style={[styles.conversationItem, { backgroundColor: colors.background, borderColor: colors.border }]}
-      onPress={() => router.push(`/chat/${item.id}`)}
+      onPress={() => {
+        if (item.source === 'pms') {
+          router.push(`/chat/${item.id}?source=pms`);
+        } else {
+          router.push(`/chat/${item.id}`);
+        }
+      }}
     >
       <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
         <User size={24} color={colors.background} />
@@ -75,7 +105,7 @@ export default function PatientMessagesScreen() {
       <View style={styles.conversationInfo}>
         <View style={styles.conversationHeader}>
           <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
-            {item.doctor?.name || 'Doctor'}
+            {item.doctor?.name || item.staffName || 'Doctor'}
           </Text>
           <Text style={[styles.time, { color: colors.textSecondary }]}>
             {formatTime(item.lastMessageAt)}
@@ -112,11 +142,11 @@ export default function PatientMessagesScreen() {
         )}
       </View>
 
-      {loadingConversations && conversations.length === 0 ? (
+      {loadingConversations && allConversations.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      ) : conversations.length === 0 ? (
+      ) : allConversations.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MessageCircle size={48} color={colors.textSecondary} />
           <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Conversations</Text>
@@ -126,8 +156,8 @@ export default function PatientMessagesScreen() {
         </View>
       ) : (
         <FlatList
-          data={conversations}
-          keyExtractor={(item) => String(item.id)}
+          data={allConversations}
+          keyExtractor={(item) => `${item.source}-${item.id}`}
           renderItem={renderConversation}
           contentContainerStyle={styles.list}
           refreshing={refreshing}

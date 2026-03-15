@@ -467,5 +467,35 @@ export const standaloneDoctorApi = {
     }),
 };
 
+// =====================================================
+// PMS PATIENT MESSAGING API (for patients linked to clinics)
+// =====================================================
+export const pmsPatientMessageApi = {
+  getConversations: () =>
+    apiRequest<any[]>('/api/v1/patient/pms-messages/conversations'),
+
+  getMessages: (conversationId: number, limit = 50, before?: number) => {
+    let query = `?limit=${limit}`;
+    if (before) query += `&before=${before}`;
+    return apiRequest<{ messages: any[]; hasMore: boolean; cursor: number | null }>(
+      `/api/v1/patient/pms-messages/conversations/${conversationId}${query}`
+    );
+  },
+
+  sendMessage: (conversationId: number, content: string) =>
+    apiRequest<any>(`/api/v1/patient/pms-messages/conversations/${conversationId}`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+
+  markRead: (conversationId: number) =>
+    apiRequest<any>(`/api/v1/patient/pms-messages/conversations/${conversationId}/read`, {
+      method: 'PATCH',
+    }),
+
+  getUnreadCount: () =>
+    apiRequest<{ unreadCount: number }>('/api/v1/patient/pms-messages/unread-count'),
+};
+
 // Legacy export for backwards compatibility
 export const patientApi = linkedPatientApi;

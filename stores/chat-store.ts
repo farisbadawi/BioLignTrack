@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getAccessToken } from '@/lib/api';
+import { getAccessToken, pmsPatientMessageApi } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/auth0';
 import { connectSocket, disconnectSocket, getSocket } from '@/lib/socket';
 import type { Socket } from 'socket.io-client';
@@ -29,6 +29,9 @@ export interface Conversation {
   lastMessagePreview: string | null;
   unreadCount: number;
   createdAt: string;
+  source?: 'standalone' | 'pms';
+  _pmsId?: number;
+  staffName?: string;
 }
 
 interface TypingState {
@@ -156,11 +159,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async loadConversations(userType) {
     set({ loadingConversations: true });
     const data = await apiFetch<Conversation[]>(`${getBaseUrl(userType)}/conversations`);
+    let allConversations: Conversation[] = [];
+
     if (data) {
-      set({ conversations: data, loadingConversations: false });
-    } else {
-      set({ loadingConversations: false });
+      allConversations = data.map(c => ({ ...c, source: 'standalone' as const }));
     }
+
+    // For patients, also load PMS conversations
+    if (userType === 'patient') {
+      try {
+        const pmsResponse = await pmsPatientMessageApi.getConversations();
+        if (pmsResponse.data && Array.isArray(pmsResponse.data)) {
+          const pmsConvs: Conversation[] = pmsResponse.data.map((c: any) => ({
+            ...c,
+            source: 'pms' as const,
+            _pmsId: c.id,
+          }));
+          allConversations = [...allConversations, ...pmsConvs];
+        }
+      } catch {
+        // PMS messaging not available — that's fine
+      }
+    }
+
+    // Sort by lastMessageAt
+    allConversations.sort((a, b) => {
+      if (!a.lastMessageAt) return 1;
+      if (!b.lastMessageAt) return -1;
+      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+    });
+
+    set({ conversations: allConversations, loadingConversations: false });
   },
 
   // ── Load messages ─────────────────────────────────

@@ -10,10 +10,12 @@ import { Spacing, BorderRadius } from '@/constants/colors';
 import { useChatStore, type Message } from '@/stores/chat-store';
 import { usePatientStore } from '@/stores/patient-store';
 import { useTheme } from '@/contexts/ThemeContext';
+import { pmsPatientMessageApi } from '@/lib/api';
 
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, source } = useLocalSearchParams<{ id: string; source?: string }>();
   const conversationId = parseInt(id, 10);
+  const isPms = source === 'pms';
   const { colors } = useTheme();
   const { userType } = usePatientStore();
 
@@ -27,21 +29,27 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const [pmsMessages, setPmsMessages] = useState<Message[]>([]);
+  const [pmsLoading, setPmsLoading] = useState(false);
 
-  const chatMessages = messages[conversationId] || [];
-  const isLoading = loadingMessages[conversationId] ?? false;
-  const hasMore = hasMoreMessages[conversationId] ?? true;
   const conversation = conversations.find((c) => c.id === conversationId);
-  const typing = typingUsers[conversationId] || [];
+  const typing = isPms ? [] : (typingUsers[conversationId] || []);
 
   const resolvedUserType = (userType === 'standalone_doctor' ? 'doctor' : 'patient') as 'doctor' | 'patient';
 
+  const chatMessages = isPms ? pmsMessages : (messages[conversationId] || []);
+  const isLoading = isPms ? pmsLoading : (loadingMessages[conversationId] ?? false);
+  const hasMore = isPms ? false : (hasMoreMessages[conversationId] ?? true);
+
   // Get the other person's name for the header
-  const otherName = resolvedUserType === 'patient'
-    ? conversation?.doctor?.name || 'Doctor'
-    : conversation?.patient?.name || 'Patient';
+  const otherName = isPms
+    ? 'Your Doctor'
+    : resolvedUserType === 'patient'
+      ? conversation?.doctor?.name || 'Doctor'
+      : conversation?.patient?.name || 'Patient';
 
   useEffect(() => {
+    if (isPms) return; // PMS uses REST polling, not Socket.io
     if (!connected) connect();
     setActiveConversation(conversationId);
     loadMessages(conversationId, resolvedUserType);
@@ -51,11 +59,53 @@ export default function ChatScreen() {
       setActiveConversation(null);
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
-  }, [conversationId]);
+  }, [conversationId, isPms]);
+
+  // PMS message loading with polling
+  useEffect(() => {
+    if (!isPms) return;
+
+    const loadPmsMessages = async () => {
+      setPmsLoading(true);
+      try {
+        const response = await pmsPatientMessageApi.getMessages(conversationId);
+        if (response.data?.messages) {
+          setPmsMessages(response.data.messages);
+        }
+      } catch {}
+      setPmsLoading(false);
+    };
+
+    loadPmsMessages();
+    const interval = setInterval(loadPmsMessages, 5000);
+
+    // Mark as read
+    pmsPatientMessageApi.markRead(conversationId).catch(() => {});
+
+    return () => clearInterval(interval);
+  }, [isPms, conversationId]);
 
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text) return;
+
+    if (isPms) {
+      pmsPatientMessageApi.sendMessage(conversationId, text).then((response) => {
+        if (response.data) {
+          setPmsMessages(prev => [{
+            id: response.data.id,
+            conversationId,
+            senderId: response.data.senderId,
+            senderType: response.data.senderType,
+            content: response.data.content,
+            read: false,
+            createdAt: response.data.createdAt,
+          }, ...prev]);
+        }
+      });
+      setInputText('');
+      return;
+    }
 
     sendMessage(conversationId, text);
     setInputText('');
@@ -64,10 +114,11 @@ export default function ChatScreen() {
       clearTimeout(typingTimerRef.current);
       typingTimerRef.current = null;
     }
-  }, [inputText, conversationId]);
+  }, [inputText, conversationId, isPms]);
 
   const handleTextChange = useCallback((text: string) => {
     setInputText(text);
+    if (isPms) return; // No typing indicators for PMS
 
     if (text.trim()) {
       startTyping(conversationId);
@@ -78,7 +129,7 @@ export default function ChatScreen() {
     } else {
       stopTyping(conversationId);
     }
-  }, [conversationId]);
+  }, [conversationId, isPms]);
 
   const handleLoadMore = useCallback(() => {
     if (!isLoading && hasMore) {
