@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, Send, Check, CheckCheck } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
@@ -33,6 +33,7 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const [pmsMessages, setPmsMessages] = useState<Message[]>([]);
   const [pmsLoading, setPmsLoading] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const conversation = conversations.find((c) => c.id === conversationId);
   const typing = isPms ? [] : (typingUsers[conversationId] || []);
@@ -213,7 +214,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -232,7 +233,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={styles.chatArea}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={insets.top}
       >
         {/* Messages */}
         <FlatList

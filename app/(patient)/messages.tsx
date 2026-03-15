@@ -1,23 +1,42 @@
-import React, { useEffect, useCallback, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, MessageCircle } from 'lucide-react-native';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
+  TextInput, KeyboardAvoidingView, Platform,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { User, MessageCircle, Send, Check, CheckCheck } from 'lucide-react-native';
 import { Spacing, BorderRadius } from '@/constants/colors';
 import { usePatientStore } from '@/stores/patient-store';
-import { useChatStore } from '@/stores/chat-store';
+import { useChatStore, type Message } from '@/stores/chat-store';
 import { useTheme } from '@/contexts/ThemeContext';
-import { router } from 'expo-router';
 import { pmsPatientMessageApi } from '@/lib/api';
 
 export default function PatientMessagesScreen() {
   const { assignedDoctor, userType, linkedPracticeName } = usePatientStore();
-  const { conversations, loadConversations, loadingConversations, connect, connected, totalUnread, loadUnreadCount } = useChatStore();
+  const {
+    conversations, loadConversations, loadingConversations,
+    connect, connected, loadUnreadCount,
+    messages, loadMessages, sendMessage, markRead,
+    startTyping, stopTyping, setActiveConversation,
+    typingUsers, hasMoreMessages, loadingMessages,
+  } = useChatStore();
   const { colors } = useTheme();
-  const [refreshing, setRefreshing] = useState(false);
-  const [pmsConversations, setPmsConversations] = useState<any[]>([]);
-  const [pmsLoading, setPmsLoading] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const isLinked = userType === 'linked';
+
+  // PMS state
+  const [pmsConversations, setPmsConversations] = useState<any[]>([]);
+  const [pmsLoading, setPmsLoading] = useState(false);
+  const [pmsMessages, setPmsMessages] = useState<Message[]>([]);
+  const [pmsMessagesLoading, setPmsMessagesLoading] = useState(false);
+
+  // Chat input
+  const [inputText, setInputText] = useState('');
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flatListRef = useRef<FlatList>(null);
+
+  // ── Load conversations ──────────────────────────────
 
   const loadPmsConversations = async () => {
     setPmsLoading(true);
@@ -26,35 +45,213 @@ export default function PatientMessagesScreen() {
       if (response.data && Array.isArray(response.data)) {
         setPmsConversations(response.data);
       }
-    } catch {
-      // PMS messaging not available
-    }
+    } catch {}
     setPmsLoading(false);
   };
 
   useEffect(() => {
     if (isLinked) {
-      // PMS patients — only load PMS conversations
       loadPmsConversations();
     } else {
-      // Standalone patients — only load standalone conversations via Socket.io
       if (!connected) connect();
       loadConversations('patient');
       loadUnreadCount('patient');
     }
   }, []);
 
+  // Determine the active conversation
+  const displayConversations = isLinked ? pmsConversations : conversations;
+  const activeConversation = displayConversations.length > 0 ? displayConversations[0] : null;
+  const conversationId = activeConversation?.id ?? null;
+
+  // ── Standalone: Socket.io messages ──────────────────
+
+  useEffect(() => {
+    if (isLinked || !conversationId) return;
+    setActiveConversation(conversationId);
+    loadMessages(conversationId, 'patient');
+    markRead(conversationId, 'patient');
+
+    return () => {
+      setActiveConversation(null);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, [conversationId, isLinked]);
+
+  // ── PMS: REST polling ──────────────────────────────
+
+  useEffect(() => {
+    if (!isLinked || !conversationId) return;
+
+    const loadPmsMsgs = async () => {
+      setPmsMessagesLoading(true);
+      try {
+        const response = await pmsPatientMessageApi.getMessages(conversationId);
+        if (response.data?.messages) {
+          setPmsMessages(response.data.messages);
+        }
+      } catch {}
+      setPmsMessagesLoading(false);
+    };
+
+    loadPmsMsgs();
+    const interval = setInterval(loadPmsMsgs, 5000);
+    pmsPatientMessageApi.markRead(conversationId).catch(() => {});
+
+    return () => clearInterval(interval);
+  }, [isLinked, conversationId]);
+
+  // ── Chat data ──────────────────────────────────────
+
+  const chatMessages = isLinked ? pmsMessages : (conversationId ? (messages[conversationId] || []) : []);
+  const isLoadingMessages = isLinked ? pmsMessagesLoading : (conversationId ? (loadingMessages[conversationId] ?? false) : false);
+  const typing = (!isLinked && conversationId) ? (typingUsers[conversationId] || []) : [];
+  const hasMore = (!isLinked && conversationId) ? (hasMoreMessages[conversationId] ?? true) : false;
+
+  const doctorName = activeConversation?.doctor?.name
+    || activeConversation?.staffName
+    || linkedPracticeName
+    || assignedDoctor?.name
+    || 'Doctor';
+
+  // ── Send ───────────────────────────────────────────
+
+  const handleSend = useCallback(() => {
+    const text = inputText.trim();
+    if (!text || !conversationId) return;
+
+    if (isLinked) {
+      pmsPatientMessageApi.sendMessage(conversationId, text).then((response) => {
+        if (response.data) {
+          setPmsMessages(prev => [{
+            id: response.data.id,
+            conversationId,
+            senderId: response.data.senderId,
+            senderType: response.data.senderType,
+            content: response.data.content,
+            read: false,
+            createdAt: response.data.createdAt,
+          }, ...prev]);
+        }
+      });
+    } else {
+      sendMessage(conversationId, text);
+      stopTyping(conversationId);
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
+    }
+    setInputText('');
+  }, [inputText, conversationId, isLinked]);
+
+  const handleTextChange = useCallback((text: string) => {
+    setInputText(text);
+    if (isLinked || !conversationId) return;
+
+    if (text.trim()) {
+      startTyping(conversationId);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        stopTyping(conversationId);
+      }, 3000);
+    } else {
+      stopTyping(conversationId);
+    }
+  }, [conversationId, isLinked]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!isLinked && conversationId && !isLoadingMessages && hasMore) {
+      loadMessages(conversationId, 'patient', true);
+    }
+  }, [isLoadingMessages, hasMore, conversationId, isLinked]);
+
   const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
     if (isLinked) {
       await loadPmsConversations();
+      if (conversationId) {
+        try {
+          const response = await pmsPatientMessageApi.getMessages(conversationId);
+          if (response.data?.messages) setPmsMessages(response.data.messages);
+        } catch {}
+      }
     } else {
       await loadConversations('patient');
+      if (conversationId) loadMessages(conversationId, 'patient');
     }
-    setRefreshing(false);
-  }, [isLinked]);
+  }, [isLinked, conversationId]);
 
-  // For standalone patients with no doctor linked
+  // ── Render helpers ─────────────────────────────────
+
+  const formatMessageTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDateSeparator = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  };
+
+  const shouldShowDate = (index: number) => {
+    if (index === chatMessages.length - 1) return true;
+    const current = new Date(chatMessages[index].createdAt).toDateString();
+    const next = new Date(chatMessages[index + 1].createdAt).toDateString();
+    return current !== next;
+  };
+
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    const mine = item.senderType === 'patient';
+    const showDate = shouldShowDate(index);
+
+    return (
+      <View>
+        {showDate && (
+          <View style={styles.dateSeparator}>
+            <Text style={[styles.dateSeparatorText, { color: colors.textSecondary }]}>
+              {formatDateSeparator(item.createdAt)}
+            </Text>
+          </View>
+        )}
+        <View style={[styles.messageRow, mine ? styles.myMessageRow : styles.theirMessageRow]}>
+          <View
+            style={[
+              styles.messageBubble,
+              mine
+                ? [styles.myBubble, { backgroundColor: colors.primary }]
+                : [styles.theirBubble, { backgroundColor: colors.background, borderColor: colors.border }],
+              item.pending && { opacity: 0.6 },
+              item.failed && { borderColor: colors.error, borderWidth: 1 },
+            ]}
+          >
+            <Text style={[styles.messageText, { color: mine ? colors.background : colors.textPrimary }]}>
+              {item.content}
+            </Text>
+            <View style={styles.messageFooter}>
+              <Text style={[styles.messageTime, { color: mine ? 'rgba(255,255,255,0.7)' : colors.textSecondary }]}>
+                {formatMessageTime(item.createdAt)}
+              </Text>
+              {mine && !item.pending && !item.failed && (
+                item.read
+                  ? <CheckCheck size={14} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                  : <Check size={14} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+              )}
+              {item.failed && (
+                <Text style={[styles.failedText, { color: colors.error }]}> Failed</Text>
+              )}
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // ── No doctor / loading states ─────────────────────
+
   if (!isLinked && !assignedDoctor) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
@@ -64,162 +261,185 @@ export default function PatientMessagesScreen() {
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
             Enter your doctor's code in Profile settings to start messaging
           </Text>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.primary }]}
-            onPress={() => router.push('/(patient)/profile')}
-          >
-            <Text style={[styles.actionButtonText, { color: colors.background }]}>Go to Profile</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Pick the right conversation list based on user type
-  const displayConversations = isLinked ? pmsConversations : conversations;
-  const isLoadingConversations = isLinked ? pmsLoading : loadingConversations;
-  const displayUnread = isLinked
-    ? pmsConversations.reduce((sum: number, c: any) => sum + (c.unreadCount || 0), 0)
-    : totalUnread;
+  const isInitialLoading = (isLinked ? pmsLoading : loadingConversations) && !activeConversation;
 
-  const formatTime = (dateStr: string | null) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return d.toLocaleDateString([], { weekday: 'short' });
-    }
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  };
-
-  const renderConversation = ({ item }: { item: any }) => (
-    <TouchableOpacity
-      style={[styles.conversationItem, { backgroundColor: colors.background, borderColor: colors.border }]}
-      onPress={() => router.push(`/chat/${item.id}` as any)}
-    >
-      <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-        <User size={24} color={colors.background} />
-      </View>
-      <View style={styles.conversationInfo}>
-        <View style={styles.conversationHeader}>
-          <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
-            {item.doctor?.name || item.staffName || linkedPracticeName || 'Doctor'}
-          </Text>
-          <Text style={[styles.time, { color: colors.textSecondary }]}>
-            {formatTime(item.lastMessageAt)}
-          </Text>
+  if (isInitialLoading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+        <View style={styles.chatHeader}>
+          <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+            <User size={20} color={colors.background} />
+          </View>
+          <Text style={[styles.chatHeaderName, { color: colors.textPrimary }]}>{doctorName}</Text>
         </View>
-        <View style={styles.conversationPreview}>
-          <Text
-            style={[styles.preview, { color: item.unreadCount > 0 ? colors.textPrimary : colors.textSecondary }]}
-            numberOfLines={1}
-          >
-            {item.lastMessagePreview || 'No messages yet'}
-          </Text>
-          {item.unreadCount > 0 && (
-            <View style={[styles.badge, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.badgeText, { color: colors.background }]}>
-                {item.unreadCount > 99 ? '99+' : item.unreadCount}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>Messages</Text>
-        <View style={{ height: 3, width: 40, backgroundColor: colors.primary, borderRadius: 2, marginTop: 6, marginBottom: 4 }} />
-        {displayUnread > 0 && (
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {displayUnread} unread message{displayUnread !== 1 ? 's' : ''}
-          </Text>
-        )}
-      </View>
-
-      {isLoadingConversations && displayConversations.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      ) : displayConversations.length === 0 ? (
+      </SafeAreaView>
+    );
+  }
+
+  if (!activeConversation) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+        <View style={styles.chatHeader}>
+          <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+            <User size={20} color={colors.background} />
+          </View>
+          <Text style={[styles.chatHeaderName, { color: colors.textPrimary }]}>{doctorName}</Text>
+        </View>
         <View style={styles.emptyContainer}>
           <MessageCircle size={48} color={colors.textSecondary} />
-          <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Conversations</Text>
+          <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Messages Yet</Text>
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
             {isLinked
               ? 'Your clinic will start a conversation with you'
               : 'Your doctor will start a conversation with you'}
           </Text>
         </View>
-      ) : (
+      </SafeAreaView>
+    );
+  }
+
+  // ── Main chat view ─────────────────────────────────
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+      {/* Doctor header */}
+      <View style={[styles.chatHeader, { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
+        <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+          <User size={20} color={colors.background} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.chatHeaderName, { color: colors.textPrimary }]}>{doctorName}</Text>
+          {typing.length > 0 && (
+            <Text style={{ fontSize: 12, fontStyle: 'italic', color: colors.primary }}>typing...</Text>
+          )}
+        </View>
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={90 + insets.top}
+      >
+        {/* Messages */}
         <FlatList
-          data={displayConversations}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderConversation}
-          contentContainerStyle={styles.list}
-          refreshing={refreshing}
+          ref={flatListRef}
+          data={chatMessages}
+          keyExtractor={(item) => item.tempId || String(item.id)}
+          renderItem={renderMessage}
+          inverted
+          contentContainerStyle={styles.messageList}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
           onRefresh={handleRefresh}
+          refreshing={false}
+          ListFooterComponent={
+            isLoadingMessages ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ padding: Spacing.md }} />
+            ) : null
+          }
+          ListEmptyComponent={
+            !isLoadingMessages ? (
+              <View style={styles.emptyChat}>
+                <Text style={[styles.emptyChatText, { color: colors.textSecondary }]}>
+                  No messages yet. Say hello!
+                </Text>
+              </View>
+            ) : null
+          }
         />
-      )}
+
+        {/* Input */}
+        <View style={[styles.inputContainer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+          <TextInput
+            style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.surface, borderColor: colors.border }]}
+            placeholder="Type a message..."
+            placeholderTextColor={colors.textSecondary}
+            value={inputText}
+            onChangeText={handleTextChange}
+            multiline
+            maxLength={2000}
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, { backgroundColor: inputText.trim() ? colors.primary : colors.border }]}
+            onPress={handleSend}
+            disabled={!inputText.trim()}
+          >
+            <Send size={20} color={inputText.trim() ? colors.background : colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.lg },
-  title: { fontSize: 28, fontWeight: '700' },
-  subtitle: { fontSize: 14, marginTop: 2 },
-  list: { paddingHorizontal: Spacing.md },
-  conversationItem: {
+  chatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    marginBottom: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
   },
   avatar: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 40, height: 40, borderRadius: 20,
     justifyContent: 'center', alignItems: 'center',
-    marginRight: Spacing.md,
+    marginRight: Spacing.sm,
   },
-  conversationInfo: { flex: 1 },
-  conversationHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 4,
-  },
-  name: { fontSize: 16, fontWeight: '600', flex: 1 },
-  time: { fontSize: 12, marginLeft: Spacing.sm },
-  conversationPreview: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-  },
-  preview: { fontSize: 14, flex: 1 },
-  badge: {
-    minWidth: 20, height: 20, borderRadius: 10,
-    justifyContent: 'center', alignItems: 'center',
-    paddingHorizontal: 6, marginLeft: Spacing.sm,
-  },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  chatHeaderName: { fontSize: 18, fontWeight: '600' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyContainer: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
     paddingHorizontal: Spacing.xl,
   },
   emptyTitle: { fontSize: 20, fontWeight: '700', marginTop: Spacing.lg, marginBottom: Spacing.sm },
-  emptySubtitle: { fontSize: 16, textAlign: 'center', lineHeight: 22, marginBottom: Spacing.lg },
-  actionButton: {
-    paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
+  emptySubtitle: { fontSize: 16, textAlign: 'center', lineHeight: 22 },
+  messageList: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm },
+  dateSeparator: { alignItems: 'center', paddingVertical: Spacing.md },
+  dateSeparatorText: { fontSize: 12, fontWeight: '500' },
+  messageRow: { marginBottom: Spacing.xs },
+  myMessageRow: { alignItems: 'flex-end' },
+  theirMessageRow: { alignItems: 'flex-start' },
+  messageBubble: {
+    maxWidth: '80%',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
   },
-  actionButtonText: { fontSize: 16, fontWeight: '600' },
+  myBubble: { borderBottomRightRadius: 4 },
+  theirBubble: { borderBottomLeftRadius: 4, borderWidth: 1 },
+  messageText: { fontSize: 15, lineHeight: 20 },
+  messageFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
+    marginTop: 4,
+  },
+  messageTime: { fontSize: 11 },
+  failedText: { fontSize: 11, fontWeight: '600' },
+  inputContainer: {
+    flexDirection: 'row', alignItems: 'flex-end',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderTopWidth: 1,
+  },
+  input: {
+    flex: 1, borderRadius: BorderRadius.lg, borderWidth: 1,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    fontSize: 15, maxHeight: 100, marginRight: Spacing.sm,
+  },
+  sendButton: {
+    width: 40, height: 40, borderRadius: 20,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  emptyChat: {
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+    paddingVertical: Spacing.xl,
+    transform: [{ scaleY: -1 }],
+  },
+  emptyChatText: { fontSize: 14 },
 });
